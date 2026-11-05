@@ -1,13 +1,13 @@
 import {
   Activity,
   ClipboardList,
-  LayoutDashboard,
   Settings2,
   TriangleAlert,
   UsersRound,
 } from "lucide-react";
 import Card from "../components/Card.jsx";
 import PageHeader from "../components/PageHeader.jsx";
+import Dashboard from "./Dashboard.jsx";
 
 function PlaceholderPage({
   description,
@@ -32,22 +32,7 @@ function PlaceholderPage({
 }
 
 export function OverviewPage() {
-  return (
-    <>
-      <PageHeader
-        description="Your production workspace is ready."
-        title="Good morning"
-      />
-      <Card className="placeholder-card" title="Workspace overview">
-        <div aria-hidden="true" className="placeholder-card__icon">
-          <LayoutDashboard size={20} strokeWidth={1.8} />
-        </div>
-        <p className="placeholder-card__description">
-          Dashboard content will appear here as your workspace grows.
-        </p>
-      </Card>
-    </>
-  );
+  return <Dashboard />;
 }
 
 export function OrdersPage() {
