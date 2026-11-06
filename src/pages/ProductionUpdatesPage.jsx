@@ -1,6 +1,12 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ClipboardList, Clock3, Plus } from "lucide-react";
+import {
+  ArrowRight,
+  ClipboardList,
+  Clock3,
+  MessageSquareWarning,
+  Plus,
+} from "lucide-react";
 import Button from "../components/Button.jsx";
 import Card from "../components/Card.jsx";
 import ProductionProgress from "../components/ProductionProgress.jsx";
@@ -39,15 +45,26 @@ export default function ProductionUpdatesPage() {
             visible.
           </p>
         </div>
-        <Button
-          as={Link}
-          className="supervisor-dashboard__action"
-          to="/production-updates/new"
-          variant="primary"
-        >
-          <Plus aria-hidden="true" size={18} />
-          Submit Production Update
-        </Button>
+        <div className="supervisor-dashboard__actions">
+          <Button
+            as={Link}
+            className="supervisor-dashboard__action"
+            to="/issues/new"
+            variant="secondary"
+          >
+            <MessageSquareWarning aria-hidden="true" size={17} />
+            Report Issue
+          </Button>
+          <Button
+            as={Link}
+            className="supervisor-dashboard__action"
+            to="/production-updates/new"
+            variant="primary"
+          >
+            <Plus aria-hidden="true" size={18} />
+            Submit Production Update
+          </Button>
+        </div>
       </header>
 
       {storageError && (

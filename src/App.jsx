@@ -12,6 +12,8 @@ import OrderDetailsPage from "./pages/OrderDetailsPage.jsx";
 import ProductionUpdateForm from "./components/ProductionUpdateForm.jsx";
 import ProductionUpdateDetailsPage from "./pages/ProductionUpdateDetailsPage.jsx";
 import ProductionUpdatesPage from "./pages/ProductionUpdatesPage.jsx";
+import IssueReportPage from "./features/issues/IssueReportPage.jsx";
+import IssueManagementPage from "./features/issues/IssueManagementPage.jsx";
 
 export default function App() {
   return (
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="orders/:poNumber/edit" element={<OrderForm />} />
         <Route path="orders/:poNumber" element={<OrderDetailsPage />} />
         <Route path="production-updates" element={<ProductionUpdatesPage />} />
+        <Route path="issues" element={<IssueManagementPage />} />
+        <Route path="issues/new" element={<IssueReportPage />} />
         <Route
           path="production-updates/new"
           element={<ProductionUpdateForm />}

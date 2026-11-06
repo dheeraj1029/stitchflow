@@ -10,6 +10,8 @@ const pageTitles = {
   "/orders/new": "Create Order",
   "/production-updates": "Production Updates",
   "/production-updates/new": "Submit Production Update",
+  "/issues": "Production Issues",
+  "/issues/new": "Report Production Issue",
   "/delay-warnings": "Delay Warnings",
   "/buyers": "Buyers",
   "/settings": "Settings",

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node --test",
+    "api:dev": "npm run dev --prefix backend"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
