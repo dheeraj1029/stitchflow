@@ -10,36 +10,22 @@ import DashboardHeader from "../components/DashboardHeader.jsx";
 import KpiCard from "../components/KpiCard.jsx";
 import OrderFiltersPanel from "../components/OrderFiltersPanel.jsx";
 import ProductionOrdersTable from "../components/ProductionOrdersTable.jsx";
-import { productionOrders } from "../data/productionOrders.js";
+import { getOrderFilterOptions, filterProductionOrders } from "../data/filterOrders.js";
+import { useOrders } from "../state/OrdersContext.js";
 
 export default function Dashboard() {
+  const { orders } = useOrders();
   const [search, setSearch] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState("");
   const [selectedUnit, setSelectedUnit] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
 
-  const buyers = useMemo(
-    () => [...new Set(productionOrders.map((order) => order.buyer))],
-    [],
-  );
-  const units = useMemo(
-    () => [...new Set(productionOrders.map((order) => order.productionUnit))],
-    [],
-  );
-  const normalizedSearch = search.trim().toLocaleLowerCase();
-  const filteredOrders = productionOrders.filter((order) => {
-    const matchesSearch =
-      !normalizedSearch ||
-      [order.poNumber, order.buyer, order.style].some((value) =>
-        value.toLocaleLowerCase().includes(normalizedSearch),
-      );
-
-    return (
-      matchesSearch &&
-      (!selectedBuyer || order.buyer === selectedBuyer) &&
-      (!selectedUnit || order.productionUnit === selectedUnit) &&
-      (!selectedStatus || order.status === selectedStatus)
-    );
+  const { buyers, units } = useMemo(() => getOrderFilterOptions(orders), [orders]);
+  const filteredOrders = filterProductionOrders(orders, {
+    search,
+    selectedBuyer,
+    selectedUnit,
+    selectedStatus,
   });
   const hasActiveFilters = Boolean(
     search || selectedBuyer || selectedUnit || selectedStatus,
@@ -51,16 +37,16 @@ export default function Dashboard() {
     setSelectedStatus("");
   };
   const countByStatus = (status) =>
-    productionOrders.filter((order) => order.status === status).length;
-  const activeOrders = productionOrders.filter(
-    (order) => !["completed", "pending"].includes(order.status),
+    orders.filter((order) => order.status === status).length;
+  const activeOrders = orders.filter(
+    (order) => order.status !== "completed",
   ).length;
 
   const metrics = [
     {
       label: "Active Orders",
       value: activeOrders,
-      description: "Current production orders",
+      description: "Orders not yet completed",
       icon: ClipboardList,
       tone: "navy",
     },
@@ -126,7 +112,7 @@ export default function Dashboard() {
           onReset={resetFilters}
           orders={filteredOrders}
           resultCount={filteredOrders.length}
-          totalCount={productionOrders.length}
+          totalCount={orders.length}
         />
       </OrderFiltersPanel>
     </div>

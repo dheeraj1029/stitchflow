@@ -1,6 +1,5 @@
 import {
   Activity,
-  ClipboardList,
   Settings2,
   TriangleAlert,
   UsersRound,
@@ -33,18 +32,6 @@ function PlaceholderPage({
 
 export function OverviewPage() {
   return <Dashboard />;
-}
-
-export function OrdersPage() {
-  return (
-    <PlaceholderPage
-      description="A shared space for knitwear order management."
-      icon={ClipboardList}
-      placeholderDescription="Order lists and management tools will be introduced in a later phase."
-      placeholderTitle="Order management"
-      title="Orders"
-    />
-  );
 }
 
 export function ProductionUpdatesPage() {

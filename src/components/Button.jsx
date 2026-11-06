@@ -2,6 +2,7 @@ import { forwardRef } from "react";
 
 const Button = forwardRef(function Button(
   {
+    as: Component = "button",
     children,
     className = "",
     variant = "secondary",
@@ -11,14 +12,14 @@ const Button = forwardRef(function Button(
   ref,
 ) {
   return (
-    <button
+    <Component
       className={`button button--${variant} ${className}`.trim()}
       ref={ref}
-      type={type}
+      {...(Component === "button" ? { type } : {})}
       {...props}
     >
       {children}
-    </button>
+    </Component>
   );
 });
 

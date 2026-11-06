@@ -1,9 +1,13 @@
-import { getStageProgress } from "../data/productionOrders.js";
+import {
+  getStageProgress,
+  getStageTarget,
+} from "../data/productionOrders.js";
 
 const numberFormatter = new Intl.NumberFormat("en");
 
 export default function ProductionProgress({ order }) {
   const progress = getStageProgress(order);
+  const target = getStageTarget(order);
   const displayedProgress = progress.toFixed(1);
 
   return (
@@ -14,7 +18,7 @@ export default function ProductionProgress({ order }) {
           aria-valuemax={100}
           aria-valuemin={0}
           aria-valuenow={Number(displayedProgress)}
-          aria-valuetext={`${numberFormatter.format(order.stageOutput)} of ${numberFormatter.format(order.quantity)} pieces at ${order.stage}, ${displayedProgress}%`}
+          aria-valuetext={`${numberFormatter.format(order.stageOutput)} of ${numberFormatter.format(target)} stage target at ${order.stage}, ${displayedProgress}%`}
           className="production-progress__value"
           role="progressbar"
           style={{ width: `${progress}%` }}
@@ -23,7 +27,7 @@ export default function ProductionProgress({ order }) {
       <span className="production-progress__percentage">{displayedProgress}%</span>
       <span className="production-progress__detail">
         {numberFormatter.format(order.stageOutput)} of{" "}
-        {numberFormatter.format(order.quantity)} pcs at {order.stage}
+        {numberFormatter.format(target)} pcs at {order.stage}
       </span>
     </div>
   );

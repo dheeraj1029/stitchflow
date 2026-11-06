@@ -1,13 +1,15 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/AppLayout.jsx";
+import OrderForm from "./components/OrderForm.jsx";
 import {
   BuyersPage,
   DelayWarningsPage,
-  OrdersPage,
   OverviewPage,
   ProductionUpdatesPage,
   SettingsPage,
 } from "./pages/WorkspacePages.jsx";
+import OrdersPage from "./pages/OrdersPage.jsx";
+import OrderDetailsPage from "./pages/OrderDetailsPage.jsx";
 
 export default function App() {
   return (
@@ -16,6 +18,9 @@ export default function App() {
         <Route index element={<Navigate to="/overview" replace />} />
         <Route path="overview" element={<OverviewPage />} />
         <Route path="orders" element={<OrdersPage />} />
+        <Route path="orders/new" element={<OrderForm />} />
+        <Route path="orders/:poNumber/edit" element={<OrderForm />} />
+        <Route path="orders/:poNumber" element={<OrderDetailsPage />} />
         <Route
           path="production-updates"
           element={<ProductionUpdatesPage />}
