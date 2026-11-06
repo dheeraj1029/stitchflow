@@ -16,14 +16,18 @@ export default function ProductionUpdateHistory({
   const history = useMemo(
     () =>
       updates
-        .filter((update) => !orderId || update.orderId === orderId)
+        .filter(
+          (update) =>
+            orderById.has(update.orderId) &&
+            (!orderId || update.orderId === orderId),
+        )
         .slice()
         .sort(
           (a, b) =>
             b.productionDate.localeCompare(a.productionDate) ||
             b.submittedAt.localeCompare(a.submittedAt),
         ),
-    [orderId, updates],
+    [orderById, orderId, updates],
   );
 
   return (

@@ -3,15 +3,23 @@ import { getBaselineStageOutput } from "../data/productionOrders.js";
 import { loadOrderData, writeOrderData } from "../data/orderStorage.js";
 import { useProductionUpdates } from "./ProductionUpdatesContext.js";
 import { OrdersContext } from "./OrdersContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 
 export function OrdersProvider({ children }) {
   const [initialData] = useState(loadOrderData);
   const [storedOrders, setStoredOrders] = useState(initialData.orders);
   const [storageError, setStorageError] = useState(initialData.error);
   const { updates } = useProductionUpdates();
+  const { user } = useAuth();
   const orders = useMemo(
     () =>
-      storedOrders.map((order) => {
+      storedOrders
+        .filter(
+          (order) =>
+            user?.role !== "SUPERVISOR" ||
+            order.productionUnit === user.productionUnitName,
+        )
+        .map((order) => {
         const baselineStageOutput = getBaselineStageOutput(order);
         const stageOutput =
           baselineStageOutput +
@@ -24,7 +32,7 @@ export function OrdersProvider({ children }) {
           );
         return { ...order, baselineStageOutput, stageOutput };
       }),
-    [storedOrders, updates],
+    [storedOrders, updates, user],
   );
 
   function saveOrder(order, existingId = null) {

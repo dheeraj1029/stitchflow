@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "./Sidebar.jsx";
 import Topbar from "./Topbar.jsx";
 import { useOrders } from "../state/OrdersContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 
 const pageTitles = {
   "/overview": "Overview",
@@ -15,12 +16,15 @@ const pageTitles = {
   "/delay-warnings": "Delay Warnings",
   "/buyers": "Buyers",
   "/settings": "Settings",
+  "/admin/users": "User Management",
 };
 
 export default function AppLayout() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const { storageError } = useOrders();
   const closeMobileMenu = useCallback(() => {
     setIsMobileOpen(false);
@@ -57,11 +61,16 @@ export default function AppLayout() {
         : location.pathname.startsWith("/production-updates/")
           ? "Production Update Details"
         : "Overview");
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
   return (
     <div className="app-shell">
       <Sidebar
         isMobileOpen={isMobileOpen}
         onNavigate={closeMobileMenu}
+        onLogout={handleLogout}
       />
       {isMobileOpen && (
         <button
@@ -76,7 +85,9 @@ export default function AppLayout() {
           currentPage={currentPage}
           isMobileOpen={isMobileOpen}
           menuButtonRef={menuButtonRef}
+          onLogout={handleLogout}
           onMenuClick={() => setIsMobileOpen((isOpen) => !isOpen)}
+          user={user}
         />
         <main className="main-content" id="main-content">
           {storageError && (

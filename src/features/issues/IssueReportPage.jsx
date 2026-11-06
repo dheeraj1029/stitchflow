@@ -16,7 +16,7 @@ import {
   SEVERITY_LABELS,
 } from "./issueConstants.js";
 import { createIssueRecord } from "./issueModel.js";
-import { classifySavedIssue } from "./issueApi.js";
+import { classifySavedIssue, saveIssueForReview } from "./issueApi.js";
 
 const MAX_NOTE_LENGTH = 4000;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -113,6 +113,7 @@ export default function IssueReportPage() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
+      await saveIssueForReview(issue);
       const classification = await classifySavedIssue(issue, {
         signal: controller.signal,
       });

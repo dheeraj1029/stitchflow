@@ -7,12 +7,14 @@ import {
 } from "./issueModel.js";
 import { loadIssueData, writeIssueData } from "./issueStorage.js";
 import { IssuesContext } from "./IssuesContext.js";
+import { useAuth } from "../auth/AuthContext.js";
 
 export function IssuesProvider({ children }) {
   const [initialData] = useState(loadIssueData);
   const [issues, setIssues] = useState(initialData.issues);
   const issuesRef = useRef(initialData.issues);
   const [storageError, setStorageError] = useState(initialData.error);
+  const { user } = useAuth();
 
   function commit(nextIssues, issue, errorMessage) {
     try {
@@ -45,8 +47,14 @@ export function IssuesProvider({ children }) {
     return commit(result.issues, result.issue);
   }
 
+  const visibleIssues =
+    user?.role === "SUPERVISOR"
+      ? issues.filter(
+          (issue) => issue.productionUnit === user.productionUnitName,
+        )
+      : issues;
   const value = {
-    issues,
+    issues: visibleIssues,
     storageError,
     createIssue,
     applyClassification: (id, classification) =>

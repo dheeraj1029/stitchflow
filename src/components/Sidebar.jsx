@@ -2,25 +2,29 @@ import {
   Activity,
   ClipboardList,
   LayoutDashboard,
+  LogOut,
   MessageSquareWarning,
-  Settings2,
   TriangleAlert,
   UsersRound,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../features/auth/AuthContext.js";
+import { getNavigationForRole, getRoleHome } from "../features/auth/permissions.js";
 import NavigationItem from "./NavigationItem.jsx";
 
-const navigationItems = [
-  { label: "Overview", to: "/overview", icon: LayoutDashboard },
-  { label: "Orders", to: "/orders", icon: ClipboardList },
-  { label: "Production Updates", to: "/production-updates", icon: Activity },
-  { label: "Production Issues", to: "/issues", icon: MessageSquareWarning },
-  { label: "Delay Warnings", to: "/delay-warnings", icon: TriangleAlert },
-  { label: "Buyers", to: "/buyers", icon: UsersRound },
-  { label: "Settings", to: "/settings", icon: Settings2 },
-];
+const icons = {
+  overview: LayoutDashboard,
+  orders: ClipboardList,
+  updates: Activity,
+  issues: MessageSquareWarning,
+  warnings: TriangleAlert,
+  buyers: UsersRound,
+  users: UsersRound,
+};
 
-export default function Sidebar({ isMobileOpen, onNavigate }) {
+export default function Sidebar({ isMobileOpen, onNavigate, onLogout }) {
+  const { user } = useAuth();
+  const navigationItems = getNavigationForRole(user?.role);
   return (
     <aside
       aria-label="Primary sidebar"
@@ -30,7 +34,7 @@ export default function Sidebar({ isMobileOpen, onNavigate }) {
         aria-label="StitchFlow overview"
         className="sidebar__brand"
         onClick={onNavigate}
-        to="/overview"
+        to={getRoleHome(user?.role)}
       >
         <span aria-hidden="true" className="brand-mark">
           <span />
@@ -39,7 +43,9 @@ export default function Sidebar({ isMobileOpen, onNavigate }) {
         </span>
         <span className="sidebar__brand-copy">
           <span className="sidebar__brand-name">StitchFlow</span>
-          <span className="sidebar__brand-caption">Production Workspace</span>
+          <span className="sidebar__brand-caption">
+            {user?.role === "BUYER" ? "Buyer Portal" : "Production Workspace"}
+          </span>
         </span>
       </Link>
 
@@ -51,7 +57,7 @@ export default function Sidebar({ isMobileOpen, onNavigate }) {
       >
         {navigationItems.map((item) => (
           <NavigationItem
-            icon={item.icon}
+            icon={icons[item.iconName]}
             key={item.to}
             label={item.label}
             onNavigate={onNavigate}
@@ -62,12 +68,21 @@ export default function Sidebar({ isMobileOpen, onNavigate }) {
 
       <div className="sidebar__footer">
         <div aria-hidden="true" className="avatar avatar--sidebar">
-          W
+          {user?.name?.slice(0, 1).toUpperCase() || "U"}
         </div>
         <div className="sidebar__profile-copy">
-          <span className="sidebar__profile-name">Workspace User</span>
-          <span className="sidebar__profile-role">Team member</span>
+          <span className="sidebar__profile-name">{user?.name || "User"}</span>
+          <span className="sidebar__profile-role">{user?.role || "Team member"}</span>
         </div>
+        <button
+          aria-label="Sign out"
+          className="sidebar__logout"
+          onClick={onLogout}
+          title="Sign out"
+          type="button"
+        >
+          <LogOut aria-hidden="true" size={17} />
+        </button>
       </div>
     </aside>
   );

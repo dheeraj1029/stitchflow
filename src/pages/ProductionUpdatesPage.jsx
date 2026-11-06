@@ -14,6 +14,7 @@ import ProductionUpdateHistory from "../components/ProductionUpdateHistory.jsx";
 import { getCumulativeStageOutput, getStageTarget } from "../data/productionOrders.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 
 function localDate(date = new Date()) {
   const timezoneOffset = date.getTimezoneOffset() * 60000;
@@ -25,9 +26,13 @@ const numberFormatter = new Intl.NumberFormat("en");
 export default function ProductionUpdatesPage() {
   const { orders } = useOrders();
   const { updates, storageError } = useProductionUpdates();
+  const { user } = useAuth();
+  const canSubmitUpdates = user?.role === "SUPERVISOR";
   const today = localDate();
   const todaysUpdates = updates.filter(
-    (update) => update.productionDate === today,
+    (update) =>
+      update.productionDate === today &&
+      orders.some((order) => order.id === update.orderId),
   );
   const recentOrders = useMemo(
     () => orders.slice().sort((a, b) => a.poNumber.localeCompare(b.poNumber)),
@@ -46,7 +51,7 @@ export default function ProductionUpdatesPage() {
           </p>
         </div>
         <div className="supervisor-dashboard__actions">
-          <Button
+          {canSubmitUpdates && <Button
             as={Link}
             className="supervisor-dashboard__action"
             to="/issues/new"
@@ -54,8 +59,8 @@ export default function ProductionUpdatesPage() {
           >
             <MessageSquareWarning aria-hidden="true" size={17} />
             Report Issue
-          </Button>
-          <Button
+          </Button>}
+          {canSubmitUpdates && <Button
             as={Link}
             className="supervisor-dashboard__action"
             to="/production-updates/new"
@@ -63,7 +68,7 @@ export default function ProductionUpdatesPage() {
           >
             <Plus aria-hidden="true" size={18} />
             Submit Production Update
-          </Button>
+          </Button>}
         </div>
       </header>
 

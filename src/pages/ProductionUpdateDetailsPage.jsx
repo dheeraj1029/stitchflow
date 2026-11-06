@@ -21,8 +21,11 @@ export default function ProductionUpdateDetailsPage() {
   const location = useLocation();
   const { orders } = useOrders();
   const { updates } = useProductionUpdates();
-  const update = updates.find((item) => item.id === updateId);
-  const order = update && orders.find((item) => item.id === update.orderId);
+  const orderById = new Map(orders.map((item) => [item.id, item]));
+  const update = updates.find(
+    (item) => item.id === updateId && orderById.has(item.orderId),
+  );
+  const order = update && orderById.get(update.orderId);
 
   if (!update) {
     return (

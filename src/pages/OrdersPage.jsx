@@ -9,6 +9,7 @@ import PageHeader from "../components/PageHeader.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { filterProductionOrders, getOrderFilterOptions } from "../data/filterOrders.js";
 import { useOrders } from "../state/OrdersContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 
 const numberFormatter = new Intl.NumberFormat("en");
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -26,6 +27,8 @@ function formatDate(date) {
 
 export default function OrdersPage() {
   const { orders } = useOrders();
+  const { user } = useAuth();
+  const canManageOrders = user?.role === "MERCHANDISER";
   const [search, setSearch] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState("");
   const [selectedUnit, setSelectedUnit] = useState("");
@@ -45,18 +48,20 @@ export default function OrdersPage() {
     <div className="orders-page">
       <div className="orders-page__header">
         <PageHeader
-          description="Manage production orders, quantities and delivery dates."
+          description={canManageOrders ? "Manage production orders, quantities and delivery dates." : "View production orders available to your role."}
           title="Orders"
         />
-        <Button
-          as={Link}
-          className="dashboard-header__create"
-          to="/orders/new"
-          variant="primary"
-        >
-          <Plus aria-hidden="true" size={18} />
-          Create Order
-        </Button>
+        {canManageOrders && (
+          <Button
+            as={Link}
+            className="dashboard-header__create"
+            to="/orders/new"
+            variant="primary"
+          >
+            <Plus aria-hidden="true" size={18} />
+            Create Order
+          </Button>
+        )}
       </div>
 
       <Card className="order-list-card" title="All production orders">
@@ -143,14 +148,16 @@ export default function OrdersPage() {
                           <ArrowUpRight aria-hidden="true" size={15} />
                           <span>View</span>
                         </Button>
-                        <Button
-                          as={Link}
-                          className="view-details-button"
-                          to={`/orders/${encodeURIComponent(order.poNumber)}/edit`}
-                          variant="quiet"
-                        >
-                          Edit
-                        </Button>
+                        {canManageOrders && (
+                          <Button
+                            as={Link}
+                            className="view-details-button"
+                            to={`/orders/${encodeURIComponent(order.poNumber)}/edit`}
+                            variant="quiet"
+                          >
+                            Edit
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>

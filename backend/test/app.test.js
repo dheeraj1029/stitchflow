@@ -4,13 +4,14 @@ import test from "node:test";
 import { createApp } from "../src/app.js";
 import { ClassificationError } from "../src/classification.js";
 
+const JWT_SECRET = "test-secret-value-that-is-long-enough-for-hs256";
+const DEMO_PASSWORD = "StitchFlowDemo2026!";
 const validInput = {
   originalNote: "Machine stopped on the line.",
-  orderId: "order-1",
+  orderId: "B-PO-88213",
   stage: "Stitching",
   languageHint: "en",
 };
-
 const validResult = {
   detectedLanguage: "English",
   translatedNote: "Machine stopped on the line.",
@@ -21,12 +22,13 @@ const validResult = {
   needsReview: false,
 };
 
-async function withServer(app, run) {
+async function withServer(run, options = {}) {
+  const app = createApp({ jwtSecret: JWT_SECRET, ...options });
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
   try {
-    return await run(`http://127.0.0.1:${address.port}`);
+    return await run(`http://127.0.0.1:${address.port}`, app);
   } finally {
     await new Promise((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
@@ -34,58 +36,79 @@ async function withServer(app, run) {
   }
 }
 
-test("classify endpoint returns strict mocked result and does not echo the original note", async () => {
+async function login(baseUrl, email = "merchandiser@stitchflow.demo", password = DEMO_PASSWORD) {
+  const response = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  return { response, body: await response.json() };
+}
+
+async function asRole(baseUrl, email = "merchandiser@stitchflow.demo") {
+  const { response, body } = await login(baseUrl, email);
+  assert.equal(response.status, 200);
+  return body.accessToken;
+}
+
+async function authorizedFetch(baseUrl, token, path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("authorization", `Bearer ${token}`);
+  if (options.body && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  return fetch(`${baseUrl}${path}`, { ...options, headers });
+}
+
+test("classify endpoint returns strict mocked result to an authenticated user", async () => {
   let received;
-  const app = createApp({
+  await withServer(async (baseUrl) => {
+    const token = await asRole(baseUrl);
+    const response = await authorizedFetch(baseUrl, token, "/api/issues/classify", {
+      method: "POST",
+      body: JSON.stringify(validInput),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), validResult);
+  }, {
     classify: async (input) => {
       received = input;
       return validResult;
     },
   });
-  await withServer(app, async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/issues/classify`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(validInput),
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), validResult);
-    assert.equal(received.originalNote, validInput.originalNote);
-  });
+  assert.equal(received.originalNote, validInput.originalNote);
 });
 
 test("empty, invalid, and oversized notes are rejected before classification", async () => {
   let calls = 0;
-  const app = createApp({
-    classify: async () => {
-      calls += 1;
-      return validResult;
-    },
-  });
-  await withServer(app, async (baseUrl) => {
+  await withServer(async (baseUrl) => {
+    const token = await asRole(baseUrl);
     for (const body of [
       { ...validInput, originalNote: " " },
       { ...validInput, originalNote: "x".repeat(4001) },
       { ...validInput, languageHint: "fr" },
     ]) {
-      const response = await fetch(`${baseUrl}/api/issues/classify`, {
+      const response = await authorizedFetch(baseUrl, token, "/api/issues/classify", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
       assert.equal(response.status, 400);
       assert.equal(typeof (await response.json()).error, "string");
     }
     assert.equal(calls, 0);
+  }, {
+    classify: async () => {
+      calls += 1;
+      return validResult;
+    },
   });
 });
 
 test("API body size limit returns 413", async () => {
-  const app = createApp();
-  await withServer(app, async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/issues/classify`, {
+  await withServer(async (baseUrl) => {
+    const token = await asRole(baseUrl);
+    const response = await authorizedFetch(baseUrl, token, "/api/issues/classify", {
       method: "POST",
-      headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...validInput, originalNote: "x".repeat(20_000) }),
     });
     assert.equal(response.status, 413);
@@ -98,20 +121,19 @@ test("provider errors and timeouts return safe messages", async () => {
     new ClassificationError("classification_timeout", 504),
     new ClassificationError("classification_provider_error", 502),
   ]) {
-    const app = createApp({
-      classify: async () => {
-        throw error;
-      },
-    });
-    await withServer(app, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/issues/classify`, {
+    await withServer(async (baseUrl) => {
+      const token = await asRole(baseUrl);
+      const response = await authorizedFetch(baseUrl, token, "/api/issues/classify", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify(validInput),
       });
       assert.equal(response.status, error.status);
       const body = await response.json();
       assert.doesNotMatch(JSON.stringify(body), /provider internals|key-like/);
+    }, {
+      classify: async () => {
+        throw error;
+      },
     });
   }
 });
@@ -122,10 +144,10 @@ test("missing API credentials fail safely and do not fabricate results", async (
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_MODEL;
   try {
-    await withServer(createApp(), async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/issues/classify`, {
+    await withServer(async (baseUrl) => {
+      const token = await asRole(baseUrl);
+      const response = await authorizedFetch(baseUrl, token, "/api/issues/classify", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify(validInput),
       });
       assert.equal(response.status, 503);
@@ -139,18 +161,17 @@ test("missing API credentials fail safely and do not fabricate results", async (
   }
 });
 
-test("classification route is rate limited", async () => {
-  const app = createApp({ classify: async () => validResult });
-  await withServer(app, async (baseUrl) => {
+test("classification route is rate limited for an authenticated account", async () => {
+  await withServer(async (baseUrl) => {
+    const token = await asRole(baseUrl);
     let response;
     for (let index = 0; index < 11; index += 1) {
-      response = await fetch(`${baseUrl}/api/issues/classify`, {
+      response = await authorizedFetch(baseUrl, token, "/api/issues/classify", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify(validInput),
       });
     }
     assert.equal(response.status, 429);
     assert.match((await response.json()).error, /too many/i);
-  });
+  }, { classify: async () => validResult });
 });

@@ -7,6 +7,7 @@ import StatusBadge from "../components/StatusBadge.jsx";
 import TnaTimeline from "../components/TnaTimeline.jsx";
 import { useOrders } from "../state/OrdersContext.js";
 import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 import ProductionUpdateHistory from "../components/ProductionUpdateHistory.jsx";
 import {
   getCumulativeStageOutput,
@@ -43,6 +44,8 @@ export default function OrderDetailsPage() {
   const location = useLocation();
   const { orders } = useOrders();
   const { updates } = useProductionUpdates();
+  const { user } = useAuth();
+  const canEdit = user?.role === "MERCHANDISER";
   const order = orders.find((item) => item.poNumber === poNumber);
 
   if (!order) {
@@ -78,15 +81,17 @@ export default function OrderDetailsPage() {
             <ArrowLeft aria-hidden="true" size={16} />
             Back to Orders
           </Button>
-          <Button
-            onClick={() =>
-              navigate(`/orders/${encodeURIComponent(order.poNumber)}/edit`)
-            }
-            variant="primary"
-          >
-            <Pencil aria-hidden="true" size={16} />
-            Edit Order
-          </Button>
+          {canEdit && (
+            <Button
+              onClick={() =>
+                navigate(`/orders/${encodeURIComponent(order.poNumber)}/edit`)
+              }
+              variant="primary"
+            >
+              <Pencil aria-hidden="true" size={16} />
+              Edit Order
+            </Button>
+          )}
         </div>
       </div>
 

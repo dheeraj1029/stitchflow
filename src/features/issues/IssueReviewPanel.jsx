@@ -10,8 +10,13 @@ import {
   SEVERITY_LABELS,
 } from "./issueConstants.js";
 import { isBuyerWarningEligible } from "./issueModel.js";
-import { classifySavedIssue } from "./issueApi.js";
+import {
+  classifySavedIssue,
+  reviewSavedIssue,
+  saveIssueForReview,
+} from "./issueApi.js";
 import { useIssues } from "./IssuesContext.js";
+import { useAuth } from "../auth/AuthContext.js";
 
 function formatTimestamp(value) {
   if (!value || Number.isNaN(Date.parse(value))) {
@@ -41,11 +46,13 @@ export default function IssueReviewPanel({ issue, onClose }) {
     markClassificationFailed,
     rejectIssue,
   } = useIssues();
+  const { user } = useAuth();
   const [translation, setTranslation] = useState("");
   const [category, setCategory] = useState("");
   const [severity, setSeverity] = useState("");
   const [reviewerNote, setReviewerNote] = useState("");
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isSavingReview, setIsSavingReview] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionSuccess, setActionSuccess] = useState("");
 
@@ -75,9 +82,10 @@ export default function IssueReviewPanel({ issue, onClose }) {
     return null;
   }
   const isPending = issue.reviewStatus === "PENDING_REVIEW";
-  const canRetry =
+  const canReview = user?.role === "MERCHANDISER";
+  const canRetry = canReview && (
     issue.reviewStatus === "CLASSIFICATION_FAILED" ||
-    issue.reviewStatus === "PENDING_REVIEW";
+    issue.reviewStatus === "PENDING_REVIEW");
 
   async function retryClassification() {
     setIsRetrying(true);
@@ -86,6 +94,7 @@ export default function IssueReviewPanel({ issue, onClose }) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
+      await saveIssueForReview(issue);
       const classification = await classifySavedIssue(issue, {
         signal: controller.signal,
       });
@@ -107,9 +116,26 @@ export default function IssueReviewPanel({ issue, onClose }) {
     }
   }
 
-  function handleConfirm(event) {
+  async function handleConfirm(event) {
     event.preventDefault();
     setActionError("");
+    setIsSavingReview(true);
+    try {
+      await saveIssueForReview(issue);
+      await reviewSavedIssue(issue.id, {
+        decision: "CONFIRMED",
+        translation,
+        category,
+        severity,
+        reviewerNote,
+      });
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "The review could not be saved.",
+      );
+      setIsSavingReview(false);
+      return;
+    }
     const result = confirmIssue(issue.id, {
       translation,
       category,
@@ -118,19 +144,37 @@ export default function IssueReviewPanel({ issue, onClose }) {
     });
     if (!result.ok) {
       setActionError(result.error);
+      setIsSavingReview(false);
       return;
     }
     setActionSuccess("Classification confirmed by merchandiser.");
+    setIsSavingReview(false);
   }
 
-  function handleReject() {
+  async function handleReject() {
     setActionError("");
+    setIsSavingReview(true);
+    try {
+      await saveIssueForReview(issue);
+      await reviewSavedIssue(issue.id, {
+        decision: "REJECTED",
+        reviewerNote,
+      });
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "The review could not be saved.",
+      );
+      setIsSavingReview(false);
+      return;
+    }
     const result = rejectIssue(issue.id, reviewerNote);
     if (!result.ok) {
       setActionError(result.error);
+      setIsSavingReview(false);
       return;
     }
     setActionSuccess("AI suggestion rejected. This issue is not buyer-warning eligible.");
+    setIsSavingReview(false);
   }
 
   return (
@@ -205,7 +249,7 @@ export default function IssueReviewPanel({ issue, onClose }) {
             </p>
           )}
 
-          {isPending && (
+          {isPending && canReview && (
             <form className="issue-review-form" onSubmit={handleConfirm}>
               <label>
                 <span>English translation</span>
@@ -245,15 +289,20 @@ export default function IssueReviewPanel({ issue, onClose }) {
                 />
               </label>
               <div className="issue-review-actions">
-                <Button type="submit" variant="primary">Confirm classification</Button>
-                <Button onClick={handleReject} variant="secondary">Reject AI suggestion</Button>
+                <Button disabled={isSavingReview} type="submit" variant="primary">Confirm classification</Button>
+                <Button disabled={isSavingReview} onClick={handleReject} variant="secondary">Reject AI suggestion</Button>
               </div>
             </form>
+          )}
+          {isPending && !canReview && (
+            <p className="issue-review-status issue-review-status--pending">
+              Only a merchandiser can confirm or reject this classification.
+            </p>
           )}
 
           {canRetry && (
             <Button
-              disabled={isRetrying}
+              disabled={isRetrying || isSavingReview}
               onClick={retryClassification}
               variant="secondary"
             >

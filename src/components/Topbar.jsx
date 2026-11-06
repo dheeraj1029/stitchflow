@@ -1,11 +1,13 @@
-import { Bell, ChevronRight, Menu, Search } from "lucide-react";
+import { Bell, ChevronRight, LogOut, Menu, Search } from "lucide-react";
 import Button from "./Button.jsx";
 
 export default function Topbar({
   currentPage,
   isMobileOpen,
+  onLogout,
   onMenuClick,
   menuButtonRef,
+  user,
 }) {
   return (
     <header className="topbar">
@@ -46,15 +48,24 @@ export default function Topbar({
         >
           <Bell aria-hidden="true" size={19} />
         </Button>
-        <div aria-label="Workspace User, Team member" className="topbar__user">
+        <div aria-label={`${user?.name || "User"}, ${user?.role || "Team member"}`} className="topbar__user">
           <div aria-hidden="true" className="avatar avatar--topbar">
-            W
+            {user?.name?.slice(0, 1).toUpperCase() || "U"}
           </div>
           <div className="topbar__user-copy">
-            <span className="topbar__user-name">Workspace User</span>
-            <span className="topbar__user-role">Team member</span>
+            <span className="topbar__user-name">{user?.name || "User"}</span>
+            <span className="topbar__user-role">{user?.role || "Team member"}</span>
           </div>
         </div>
+        <Button
+          aria-label="Sign out"
+          className="topbar__logout"
+          onClick={onLogout}
+          title="Sign out"
+          variant="quiet"
+        >
+          <LogOut aria-hidden="true" size={17} />
+        </Button>
       </div>
     </header>
   );
