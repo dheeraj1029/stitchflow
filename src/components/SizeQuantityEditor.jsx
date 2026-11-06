@@ -25,8 +25,9 @@ export default function SizeQuantityEditor({
     <div className="quantity-editor">
       {rows.length === 0 && savedQuantity > 0 && (
         <p className="quantity-editor__legacy-note">
-          This sample order has no saved size breakdown. Add its sizes to edit
-          the breakdown; the current saved total is{" "}
+          This order has no saved size breakdown. Add sizes to update its
+          quantity breakdown; leaving it unchanged preserves the saved total
+          of{" "}
           <strong>{numberFormatter.format(savedQuantity)} pcs</strong>.
         </p>
       )}

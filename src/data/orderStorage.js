@@ -70,10 +70,16 @@ function isValidMilestones(order) {
   return (
     new Set(milestoneIds).size === milestoneIds.length &&
     requiredMilestones.every((required) =>
-      order.milestones.some((milestone) => milestone.key === required.key),
+      order.milestones.some(
+        (milestone) =>
+          milestone.key === required.key || milestone.name === required.name,
+      ),
     ) &&
     order.milestones
-      .filter((milestone) => milestone.key === "ex-factory")
+      .filter(
+        (milestone) =>
+          milestone.key === "ex-factory" || milestone.name === "Ex-Factory",
+      )
       .every((milestone) => milestone.plannedDate === order.exFactoryDate)
   );
 }

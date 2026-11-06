@@ -46,6 +46,9 @@ const demoMilestones = (orderDate, exFactoryDate) => {
 
     return {
       id: `demo-${index + 1}`,
+      key:
+        requiredMilestones.find((milestone) => milestone.name === name)?.key ||
+        (name === "Printing / Embroidery" ? "printing-embroidery" : ""),
       name,
       plannedDate,
       required: name !== "Printing / Embroidery",
@@ -148,8 +151,19 @@ export function normalizeOrder(order) {
     milestones: Array.isArray(order.milestones)
       ? order.milestones.map((milestone) => ({
           ...milestone,
-          key: milestone.key || "",
-          required: Boolean(milestone.required),
+          key:
+            milestone.key ||
+            requiredMilestones.find(
+              (required) => required.name === milestone.name,
+            )?.key ||
+            (milestone.name === "Printing / Embroidery"
+              ? "printing-embroidery"
+              : ""),
+          required:
+            milestone.required ??
+            requiredMilestones.some(
+              (required) => required.name === milestone.name,
+            ),
           completed: Boolean(milestone.completed),
           completedDate: milestone.completedDate || "",
           updatedAt:

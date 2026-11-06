@@ -129,6 +129,16 @@ export default function OrderForm() {
   }, [existingOrder]);
 
   const isEditing = Boolean(routePo);
+  const sizeBreakdownChanged =
+    JSON.stringify(
+      form.sizeBreakdown.map(({ size, quantity }) => ({ size, quantity })),
+    ) !==
+    JSON.stringify(
+      initialForm.sizeBreakdown.map(({ size, quantity }) => ({
+        size,
+        quantity,
+      })),
+    );
   const sizeTotal = useMemo(
     () =>
       form.sizeBreakdown.reduce((sum, row) => {
@@ -139,6 +149,10 @@ export default function OrderForm() {
       }, 0),
     [form.sizeBreakdown],
   );
+  const displayedProductionTarget =
+    isEditing && !sizeBreakdownChanged
+      ? existingOrder.productionTarget ?? existingOrder.quantity
+      : sizeTotal;
 
   const isDirty = JSON.stringify(form) !== baselineRef.current;
 
@@ -244,10 +258,15 @@ export default function OrderForm() {
       poNumber: form.poNumber.trim(),
       buyer: form.buyer.trim(),
       style: form.style.trim(),
-      quantity: sizeTotal,
+      quantity:
+        isEditing && !sizeBreakdownChanged
+          ? existingOrder.quantity
+          : sizeTotal,
       productionTarget: form.separateProductionTarget
         ? Number(form.productionTarget)
-        : sizeTotal,
+        : isEditing && !sizeBreakdownChanged
+          ? existingOrder.productionTarget ?? existingOrder.quantity
+          : sizeTotal,
       stageOutput: existingOrder?.stageOutput ?? 0,
       status: existingOrder?.status ?? "pending",
       sizeBreakdown: form.sizeBreakdown.map((row) => ({
@@ -263,7 +282,9 @@ export default function OrderForm() {
         updatedAt: milestone.updatedAt || new Date().toISOString(),
       })),
     };
-    const validation = validateOrder(normalized, orders, existingOrder?.id);
+    const validation = validateOrder(normalized, orders, existingOrder?.id, {
+      requireSizeBreakdown: !isEditing || sizeBreakdownChanged,
+    });
     setErrors(validation.errors);
     if (Object.keys(validation.errors).length > 0) {
       setSubmitError("Review the highlighted fields before saving.");
@@ -276,6 +297,7 @@ export default function OrderForm() {
       setErrors((current) => ({ ...current, poNumber: result.error }));
       return;
     }
+    baselineRef.current = JSON.stringify(createFormOrder(normalized));
     navigate(`/orders/${encodeURIComponent(normalized.poNumber)}`, {
       state: {
         message: isEditing ? "Order changes saved." : "Order created.",
@@ -548,7 +570,7 @@ export default function OrderForm() {
                 value={
                   form.separateProductionTarget
                     ? form.productionTarget
-                    : sizeTotal
+                    : displayedProductionTarget
                 }
               />
             </FormField>

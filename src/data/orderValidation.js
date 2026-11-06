@@ -8,7 +8,12 @@ function isValidDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function validateOrder(order, orders, existingId = null) {
+export function validateOrder(
+  order,
+  orders,
+  existingId = null,
+  { requireSizeBreakdown = true } = {},
+) {
   const errors = {};
   const poNumber = order.poNumber.trim();
 
@@ -49,37 +54,40 @@ export function validateOrder(order, orders, existingId = null) {
     errors.exFactoryDate = "Ex-factory date cannot be before the order date.";
   }
 
-  const sizeNames = new Set();
-  let totalQuantity = 0;
-  let hasInvalidSize = false;
-  for (const row of order.sizeBreakdown) {
-    const name = row.size.trim().toLocaleLowerCase();
-    const quantity = Number(row.quantity);
+  let totalQuantity = order.quantity;
+  if (requireSizeBreakdown) {
+    const sizeNames = new Set();
+    totalQuantity = 0;
+    let hasInvalidSize = false;
+    for (const row of order.sizeBreakdown) {
+      const name = row.size.trim().toLocaleLowerCase();
+      const quantity = Number(row.quantity);
 
-    if (
-      !name ||
-      row.quantity === "" ||
-      !Number.isInteger(quantity) ||
-      quantity < 0
-    ) {
-      hasInvalidSize = true;
-      continue;
+      if (
+        !name ||
+        row.quantity === "" ||
+        !Number.isInteger(quantity) ||
+        quantity < 0
+      ) {
+        hasInvalidSize = true;
+        continue;
+      }
+      if (sizeNames.has(name)) {
+        errors.sizeBreakdown =
+          "Each size must be unique. Check the duplicate size entries.";
+      }
+      sizeNames.add(name);
+      totalQuantity += quantity;
     }
-    if (sizeNames.has(name)) {
+
+    if (hasInvalidSize) {
       errors.sizeBreakdown =
-        "Each size must be unique. Check the duplicate size entries.";
+        "Enter a size and a non-negative whole-number quantity for every row.";
+    } else if (order.sizeBreakdown.length === 0) {
+      errors.sizeBreakdown = "Add at least one size and quantity.";
+    } else if (totalQuantity <= 0) {
+      errors.sizeBreakdown = "Order quantity must be greater than zero.";
     }
-    sizeNames.add(name);
-    totalQuantity += quantity;
-  }
-
-  if (hasInvalidSize) {
-    errors.sizeBreakdown =
-      "Enter a size and a non-negative whole-number quantity for every row.";
-  } else if (order.sizeBreakdown.length === 0) {
-    errors.sizeBreakdown = "Add at least one size and quantity.";
-  } else if (totalQuantity <= 0) {
-    errors.sizeBreakdown = "Order quantity must be greater than zero.";
   }
 
   if (
