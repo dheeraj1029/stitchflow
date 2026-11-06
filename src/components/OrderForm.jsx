@@ -7,7 +7,10 @@ import FormField from "./FormField.jsx";
 import PageHeader from "./PageHeader.jsx";
 import SizeQuantityEditor from "./SizeQuantityEditor.jsx";
 import TnaMilestoneEditor from "./TnaMilestoneEditor.jsx";
-import { requiredMilestones } from "../data/productionOrders.js";
+import {
+  productionStages,
+  requiredMilestones,
+} from "../data/productionOrders.js";
 import { validateOrder } from "../data/orderValidation.js";
 
 const buyers = [
@@ -19,16 +22,6 @@ const productionUnits = [
   "North Mill (Demo)",
   "Riverside Works (Demo)",
   "East Works (Demo)",
-];
-const productionStages = [
-  "Order Received",
-  "Fabric",
-  "Cutting",
-  "Printing",
-  "Stitching",
-  "Finishing",
-  "Inspection",
-  "Packing",
 ];
 const categories = ["T-shirt", "Polo", "Sweatshirt", "Knitwear", "Other"];
 
@@ -78,9 +71,10 @@ function createEmptyOrder() {
     notes: "",
     quantity: 0,
     sizeBreakdown: [],
-    stage: "Order Received",
+    stage: productionStages[0],
     stageOutput: 0,
     productionTarget: 0,
+    workflowStages: productionStages,
     separateProductionTarget: false,
     productionNotes: "",
     exFactoryDate: "",
@@ -267,7 +261,10 @@ export default function OrderForm() {
         : isEditing && !sizeBreakdownChanged
           ? existingOrder.productionTarget ?? existingOrder.quantity
           : sizeTotal,
-      stageOutput: existingOrder?.stageOutput ?? 0,
+      stageOutput:
+        existingOrder?.baselineStageOutput ?? existingOrder?.stageOutput ?? 0,
+      baselineStageOutput:
+        existingOrder?.baselineStageOutput ?? existingOrder?.stageOutput ?? 0,
       status: existingOrder?.status ?? "pending",
       sizeBreakdown: form.sizeBreakdown.map((row) => ({
         size: row.size.trim(),
@@ -540,7 +537,10 @@ export default function OrderForm() {
                 onChange={(event) => updateField("stage", event.target.value)}
                 value={form.stage}
               >
-                {productionStages.map((stage) => (
+                {(form.workflowStages?.length
+                  ? form.workflowStages
+                  : productionStages
+                ).map((stage) => (
                   <option key={stage} value={stage}>
                     {stage}
                   </option>

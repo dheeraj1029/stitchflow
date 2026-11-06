@@ -7,7 +7,14 @@ const numberFormatter = new Intl.NumberFormat("en");
 
 export default function ProductionProgress({ order }) {
   const progress = getStageProgress(order);
-  const target = getStageTarget(order);
+  const target = getStageTarget(order, order.stage);
+  if (!target) {
+    return (
+      <span className="production-progress__unavailable">
+        Stage target unavailable
+      </span>
+    );
+  }
   const displayedProgress = progress.toFixed(1);
 
   return (

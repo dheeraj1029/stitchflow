@@ -9,6 +9,7 @@ const pageTitles = {
   "/orders": "Orders",
   "/orders/new": "Create Order",
   "/production-updates": "Production Updates",
+  "/production-updates/new": "Submit Production Update",
   "/delay-warnings": "Delay Warnings",
   "/buyers": "Buyers",
   "/settings": "Settings",
@@ -51,6 +52,8 @@ export default function AppLayout() {
       ? "Edit Order"
       : location.pathname.startsWith("/orders/")
         ? "Order Details"
+        : location.pathname.startsWith("/production-updates/")
+          ? "Production Update Details"
         : "Overview");
   return (
     <div className="app-shell">

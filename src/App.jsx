@@ -5,11 +5,13 @@ import {
   BuyersPage,
   DelayWarningsPage,
   OverviewPage,
-  ProductionUpdatesPage,
   SettingsPage,
 } from "./pages/WorkspacePages.jsx";
 import OrdersPage from "./pages/OrdersPage.jsx";
 import OrderDetailsPage from "./pages/OrderDetailsPage.jsx";
+import ProductionUpdateForm from "./components/ProductionUpdateForm.jsx";
+import ProductionUpdateDetailsPage from "./pages/ProductionUpdateDetailsPage.jsx";
+import ProductionUpdatesPage from "./pages/ProductionUpdatesPage.jsx";
 
 export default function App() {
   return (
@@ -21,9 +23,14 @@ export default function App() {
         <Route path="orders/new" element={<OrderForm />} />
         <Route path="orders/:poNumber/edit" element={<OrderForm />} />
         <Route path="orders/:poNumber" element={<OrderDetailsPage />} />
+        <Route path="production-updates" element={<ProductionUpdatesPage />} />
         <Route
-          path="production-updates"
-          element={<ProductionUpdatesPage />}
+          path="production-updates/new"
+          element={<ProductionUpdateForm />}
+        />
+        <Route
+          path="production-updates/:updateId"
+          element={<ProductionUpdateDetailsPage />}
         />
         <Route path="delay-warnings" element={<DelayWarningsPage />} />
         <Route path="buyers" element={<BuyersPage />} />

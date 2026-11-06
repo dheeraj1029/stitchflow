@@ -18,6 +18,77 @@ export const requiredMilestones = [
   { key: "ex-factory", name: "Ex-Factory" },
 ];
 
+export const productionStages = [
+  "Cutting",
+  "Printing",
+  "Embroidery",
+  "Stitching",
+  "Washing",
+  "Finishing",
+  "Packing",
+];
+
+export const demoOrderWorkflows = {
+  "B-PO-88213": ["Cutting", "Stitching", "Finishing", "Packing"],
+  "B-PO-88240": ["Cutting", "Stitching", "Finishing", "Packing"],
+  "C-PO-0488": ["Cutting", "Printing", "Stitching", "Finishing", "Packing"],
+};
+
+function workflowFor(order) {
+  const stages =
+    order.workflowStages?.length
+      ? order.workflowStages
+      : demoOrderWorkflows[order.poNumber] ||
+        (order.stage ? [order.stage] : []);
+  const target = order.productionTarget ?? order.quantity;
+  return stages.map((stage) =>
+    typeof stage === "string"
+      ? { name: stage, target }
+      : { name: stage.name, target: stage.target ?? target },
+  );
+}
+
+export function getOrderWorkflow(order) {
+  return workflowFor(order).filter(({ name }) => productionStages.includes(name));
+}
+
+export function getStageTarget(order, stage = order.stage) {
+  const workflowStage = getOrderWorkflow(order).find(
+    (item) => item.name === stage,
+  );
+  return Number.isInteger(workflowStage?.target) && workflowStage.target > 0
+    ? workflowStage.target
+    : null;
+}
+
+export function getBaselineStageOutput(order, stage = order.stage) {
+  if (Number.isFinite(order.baselineStageOutputs?.[stage])) {
+    return order.baselineStageOutputs[stage];
+  }
+  if (
+    stage === order.stage &&
+    Number.isFinite(order.baselineStageOutput)
+  ) {
+    return order.baselineStageOutput;
+  }
+  return stage === order.stage && Number.isFinite(order.stageOutput)
+    ? order.stageOutput
+    : 0;
+}
+
+export function getCumulativeStageOutput(order, stage, updates) {
+  return (
+    getBaselineStageOutput(order, stage) +
+    updates.reduce(
+      (total, update) =>
+        update.orderId === order.id && update.stage === stage
+          ? total + update.completedQuantity
+          : total,
+      0,
+    )
+  );
+}
+
 const demoMilestones = (orderDate, exFactoryDate) => {
   const start = new Date(`${orderDate}T12:00:00`).getTime();
   const end = new Date(`${exFactoryDate}T12:00:00`).getTime();
@@ -77,6 +148,7 @@ export const productionOrders = [
     sizeBreakdown: [],
     stage: "Stitching",
     stageOutput: 6800,
+    workflowStages: demoOrderWorkflows["B-PO-88213"],
     productionTarget: 12000,
     productionNotes: "",
     exFactoryDate: "2026-11-20",
@@ -101,6 +173,7 @@ export const productionOrders = [
     sizeBreakdown: [],
     stage: "Finishing",
     stageOutput: 5200,
+    workflowStages: demoOrderWorkflows["B-PO-88240"],
     productionTarget: 8000,
     productionNotes: "",
     exFactoryDate: "2026-11-12",
@@ -125,6 +198,7 @@ export const productionOrders = [
     sizeBreakdown: [],
     stage: "Printing",
     stageOutput: 3100,
+    workflowStages: demoOrderWorkflows["C-PO-0488"],
     productionTarget: 10000,
     productionNotes: "",
     exFactoryDate: "2026-11-28",
@@ -147,6 +221,7 @@ export function normalizeOrder(order) {
     notes: order.notes || "",
     sizeBreakdown: Array.isArray(order.sizeBreakdown) ? order.sizeBreakdown : [],
     productionTarget: order.productionTarget ?? order.quantity,
+    workflowStages: workflowFor(order),
     productionNotes: order.productionNotes || "",
     milestones: Array.isArray(order.milestones)
       ? order.milestones.map((milestone) => ({
@@ -177,7 +252,7 @@ export function normalizeOrder(order) {
 }
 
 export function getStageProgress(order) {
-  const target = getStageTarget(order);
+  const target = getStageTarget(order, order.stage);
   if (!Number.isFinite(target) || target <= 0) {
     return 0;
   }
@@ -187,10 +262,4 @@ export function getStageProgress(order) {
   }
 
   return Math.min((order.stageOutput / target) * 100, 100);
-}
-
-export function getStageTarget(order) {
-  return Number.isFinite(order.productionTarget) && order.productionTarget > 0
-    ? order.productionTarget
-    : order.quantity;
 }

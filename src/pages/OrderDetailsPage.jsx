@@ -6,6 +6,13 @@ import PageHeader from "../components/PageHeader.jsx";
 import StatusBadge from "../components/StatusBadge.jsx";
 import TnaTimeline from "../components/TnaTimeline.jsx";
 import { useOrders } from "../state/OrdersContext.js";
+import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
+import ProductionUpdateHistory from "../components/ProductionUpdateHistory.jsx";
+import {
+  getCumulativeStageOutput,
+  getOrderWorkflow,
+  getStageTarget,
+} from "../data/productionOrders.js";
 
 const numberFormatter = new Intl.NumberFormat("en");
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -35,6 +42,7 @@ export default function OrderDetailsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { orders } = useOrders();
+  const { updates } = useProductionUpdates();
   const order = orders.find((item) => item.poNumber === poNumber);
 
   if (!order) {
@@ -166,6 +174,46 @@ export default function OrderDetailsPage() {
         </p>
         <TnaTimeline milestones={order.milestones} />
       </Card>
+
+      <Card className="details-card" title="Stage-wise production output">
+        <p className="details-card__caption">
+          Output combines the original baseline with valid updates for the same
+          order and stage.
+        </p>
+        <div className="stage-output-list">
+          {getOrderWorkflow(order).map((stage) => {
+            const output = getCumulativeStageOutput(
+              order,
+              stage.name,
+              updates,
+            );
+            const target = getStageTarget(order, stage.name);
+            return (
+              <div className="stage-output-list__item" key={stage.name}>
+                <span>{stage.name}</span>
+                <strong>
+                  {numberFormatter.format(output)} /{" "}
+                  {target
+                    ? `${numberFormatter.format(target)} pcs`
+                    : "Target unavailable"}
+                </strong>
+                {stage.name === order.stage && (
+                  <span className="stage-output-list__current">
+                    Current stage
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <ProductionUpdateHistory
+        orderId={order.id}
+        orders={orders}
+        title="Production update history"
+        updates={updates}
+      />
     </div>
   );
 }

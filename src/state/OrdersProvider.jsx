@@ -1,11 +1,31 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { getBaselineStageOutput } from "../data/productionOrders.js";
 import { loadOrderData, writeOrderData } from "../data/orderStorage.js";
+import { useProductionUpdates } from "./ProductionUpdatesContext.js";
 import { OrdersContext } from "./OrdersContext.js";
 
 export function OrdersProvider({ children }) {
   const [initialData] = useState(loadOrderData);
-  const [orders, setOrders] = useState(initialData.orders);
+  const [storedOrders, setStoredOrders] = useState(initialData.orders);
   const [storageError, setStorageError] = useState(initialData.error);
+  const { updates } = useProductionUpdates();
+  const orders = useMemo(
+    () =>
+      storedOrders.map((order) => {
+        const baselineStageOutput = getBaselineStageOutput(order);
+        const stageOutput =
+          baselineStageOutput +
+          updates.reduce(
+            (total, update) =>
+              update.orderId === order.id && update.stage === order.stage
+                ? total + update.completedQuantity
+                : total,
+            0,
+          );
+        return { ...order, baselineStageOutput, stageOutput };
+      }),
+    [storedOrders, updates],
+  );
 
   function saveOrder(order, existingId = null) {
     const duplicate = orders.some(
@@ -20,16 +40,21 @@ export function OrdersProvider({ children }) {
     }
 
     const updatedOrders = existingId
-      ? orders.map((savedOrder) =>
-          savedOrder.id === existingId ? { ...order, id: existingId } : savedOrder,
+      ? storedOrders.map((savedOrder) =>
+          savedOrder.id === existingId
+            ? persistableOrder(order, existingId, savedOrder.stageOutput)
+            : savedOrder,
         )
-      : [...orders, { ...order, id: order.poNumber }];
+      : [...storedOrders, persistableOrder(order, order.poNumber, 0)];
 
     try {
       writeOrderData(updatedOrders);
-      setOrders(updatedOrders);
+      setStoredOrders(updatedOrders);
       setStorageError("");
-      return { ok: true, order: existingId ? { ...order, id: existingId } : order };
+      return {
+        ok: true,
+        order: existingId ? { ...order, id: existingId } : order,
+      };
     } catch {
       const error =
         "Your changes could not be saved to this browser. Check storage availability and try again.";
@@ -43,4 +68,13 @@ export function OrdersProvider({ children }) {
   return (
     <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>
   );
+}
+
+function persistableOrder(order, id, fallbackBaseline) {
+  const { baselineStageOutput, ...savedOrder } = order;
+  return {
+    ...savedOrder,
+    id,
+    stageOutput: baselineStageOutput ?? fallbackBaseline,
+  };
 }

@@ -1,5 +1,4 @@
 import {
-  Activity,
   Settings2,
   TriangleAlert,
   UsersRound,
@@ -32,18 +31,6 @@ function PlaceholderPage({
 
 export function OverviewPage() {
   return <Dashboard />;
-}
-
-export function ProductionUpdatesPage() {
-  return (
-    <PlaceholderPage
-      description="A future home for updates from your production floor."
-      icon={Activity}
-      placeholderDescription="Supervisor updates and production notes will be available in a later phase."
-      placeholderTitle="Production updates"
-      title="Production Updates"
-    />
-  );
 }
 
 export function DelayWarningsPage() {
