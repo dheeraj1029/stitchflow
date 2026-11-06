@@ -11,10 +11,14 @@ import KpiCard from "../components/KpiCard.jsx";
 import OrderFiltersPanel from "../components/OrderFiltersPanel.jsx";
 import ProductionOrdersTable from "../components/ProductionOrdersTable.jsx";
 import { getOrderFilterOptions, filterProductionOrders } from "../data/filterOrders.js";
+import RiskDashboardSummary from "../features/risk/RiskDashboardSummary.jsx";
+import { predictProductionRisks } from "../features/risk/riskEngine.js";
 import { useOrders } from "../state/OrdersContext.js";
+import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
 
 export default function Dashboard() {
   const { orders } = useOrders();
+  const { updates } = useProductionUpdates();
   const [search, setSearch] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState("");
   const [selectedUnit, setSelectedUnit] = useState("");
@@ -41,6 +45,10 @@ export default function Dashboard() {
   const activeOrders = orders.filter(
     (order) => order.status !== "completed",
   ).length;
+  const riskAssessments = useMemo(
+    () => predictProductionRisks(orders, updates, new Date()),
+    [orders, updates],
+  );
 
   const metrics = [
     {
@@ -82,6 +90,8 @@ export default function Dashboard() {
           <KpiCard key={metric.label} {...metric} />
         ))}
       </section>
+
+      <RiskDashboardSummary assessments={riskAssessments} />
 
       <div className="dashboard__section-heading">
         <div>

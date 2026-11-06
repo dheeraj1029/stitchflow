@@ -1,11 +1,11 @@
 import {
   Settings2,
-  TriangleAlert,
   UsersRound,
 } from "lucide-react";
 import Card from "../components/Card.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import Dashboard from "./Dashboard.jsx";
+import RiskMonitorPage from "../features/risk/RiskMonitorPage.jsx";
 
 function PlaceholderPage({
   description,
@@ -34,15 +34,7 @@ export function OverviewPage() {
 }
 
 export function DelayWarningsPage() {
-  return (
-    <PlaceholderPage
-      description="A future view of production risks and potential delays."
-      icon={TriangleAlert}
-      placeholderDescription="Risk monitoring and delay information will be introduced in a later phase."
-      placeholderTitle="Production risk monitoring"
-      title="Delay Warnings"
-    />
-  );
+  return <RiskMonitorPage />;
 }
 
 export function BuyersPage() {
