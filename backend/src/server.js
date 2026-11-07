@@ -1,36 +1,14 @@
 import "dotenv/config";
 import { createApp } from "./app.js";
 import { closeDatabase, connectDatabase } from "./config/database.js";
-
-function readConfig(environment = process.env) {
-  const port = environment.PORT === undefined ? 3001 : Number(environment.PORT);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error("PORT must be an integer between 1 and 65535.");
-  }
-  if (!environment.MONGODB_URI?.trim()) {
-    throw new Error("MONGODB_URI is required before the API can start.");
-  }
-  if (!/^(mongodb|mongodb\+srv):\/\//.test(environment.MONGODB_URI)) {
-    throw new Error("MONGODB_URI must use the mongodb:// or mongodb+srv:// scheme.");
-  }
-  if (!environment.JWT_SECRET || Buffer.byteLength(environment.JWT_SECRET) < 32) {
-    throw new Error("JWT_SECRET must be configured with at least 32 bytes.");
-  }
-  const frontendUrl = environment.FRONTEND_URL || "http://127.0.0.1:5173";
-  try {
-    new URL(frontendUrl);
-  } catch {
-    throw new Error("FRONTEND_URL must be a valid URL.");
-  }
-  return { port, frontendUrl };
-}
+import { readServerConfig } from "./config/server.js";
 
 async function start() {
-  const { port, frontendUrl } = readConfig();
+  const { port, host, frontendOrigin } = readServerConfig();
   await connectDatabase();
-  const app = createApp({ frontendOrigin: frontendUrl });
-  const server = app.listen(port, "127.0.0.1", () => {
-    console.info(`StitchFlow API listening on 127.0.0.1:${port}; MongoDB is ready.`);
+  const app = createApp({ frontendOrigin });
+  const server = app.listen(port, host, () => {
+    console.info(`StitchFlow API listening on ${host}:${port}; MongoDB is ready.`);
   });
   let stopping = false;
   const stop = (signal) => {

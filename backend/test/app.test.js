@@ -121,6 +121,65 @@ test("API body size limit returns 413", async () => {
   });
 });
 
+test("CORS accepts only the configured frontend origin", async () => {
+  await withServer(async (baseUrl) => {
+    const allowed = await fetch(`${baseUrl}/api/health`, {
+      headers: { origin: "http://127.0.0.1:5173" },
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(
+      allowed.headers.get("access-control-allow-origin"),
+      "http://127.0.0.1:5173",
+    );
+
+    const rejected = await fetch(`${baseUrl}/api/health`, {
+      headers: { origin: "https://untrusted.example" },
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal(rejected.headers.get("access-control-allow-origin"), null);
+    assert.deepEqual(await rejected.json(), {
+      error: "This origin is not allowed.",
+    });
+  });
+});
+
+test("database readiness failures return 503 without accessing protected routes", async () => {
+  const repository = createDemoRepository();
+  repository.isPersistent = true;
+  await withServer(async (baseUrl) => {
+    const health = await fetch(`${baseUrl}/api/health`);
+    const orders = await fetch(`${baseUrl}/api/orders`);
+    assert.equal(health.status, 503);
+    assert.deepEqual(await health.json(), {
+      status: "unavailable",
+      database: "disconnected",
+    });
+    assert.equal(orders.status, 503);
+    assert.doesNotMatch(await orders.text(), /stack|mongoose|mongodb/i);
+  }, { repository });
+});
+
+test("unexpected API failures return a generic message without internals", async () => {
+  const repository = createDemoRepository();
+  repository.findUserByEmail = async () => {
+    throw new Error("private MongoDB host and credentials");
+  };
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        email: "merchandiser@stitchflow.demo",
+        password: DEMO_PASSWORD,
+      }),
+    });
+    assert.equal(response.status, 500);
+    const body = await response.text();
+    assert.match(body, /could not process this request/i);
+    assert.doesNotMatch(body, /private MongoDB|stack|credentials/i);
+  }, { repository });
+});
+
 test("provider errors and timeouts return safe messages", async () => {
   for (const error of [
     new ClassificationError("classification_timeout", 504),

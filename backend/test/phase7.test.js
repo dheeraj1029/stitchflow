@@ -98,7 +98,26 @@ test("missing, malformed, and expired JWTs are rejected", async () => {
       expiresIn: -1,
     });
     const expiredResponse = await request(baseUrl, expired, "/api/auth/me");
-    for (const response of [missing, malformed, expiredResponse]) {
+    const noExpiry = jwt.sign({ sub: "user-buyer-b" }, SECRET, {
+      algorithm: "HS256",
+    });
+    const missingSubject = jwt.sign({ role: "ADMIN" }, SECRET, {
+      algorithm: "HS256",
+      expiresIn: "1h",
+    });
+    const noExpiryResponse = await request(baseUrl, noExpiry, "/api/auth/me");
+    const missingSubjectResponse = await request(
+      baseUrl,
+      missingSubject,
+      "/api/auth/me",
+    );
+    for (const response of [
+      missing,
+      malformed,
+      expiredResponse,
+      noExpiryResponse,
+      missingSubjectResponse,
+    ]) {
       assert.equal(response.status, 401);
     }
   });

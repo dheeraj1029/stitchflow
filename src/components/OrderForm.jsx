@@ -79,6 +79,10 @@ function createFormOrder(order) {
   const source = order || createEmptyOrder();
   return {
     ...source,
+    workflowStages: (source.workflowStages?.length
+      ? source.workflowStages
+      : productionStages
+    ).map((stage) => (typeof stage === "string" ? stage : stage.name)),
     sizeBreakdown: (source.sizeBreakdown || []).map((row, index) => ({
       ...row,
       id: row.id || `saved-size-${index}`,

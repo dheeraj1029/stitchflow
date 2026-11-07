@@ -43,7 +43,12 @@ export function createAuthenticationMiddleware(repository, secret) {
     } catch {
       return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
     }
-    if (!payload || typeof payload.sub !== "string") {
+    if (
+      !payload ||
+      typeof payload.sub !== "string" ||
+      !Number.isInteger(payload.exp) ||
+      payload.exp <= Math.floor(Date.now() / 1000)
+    ) {
       return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
     }
     return Promise.resolve(repository.findUserById(payload.sub)).then((user) => {

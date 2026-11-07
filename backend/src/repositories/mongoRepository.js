@@ -51,6 +51,33 @@ function validDate(value) {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function getSizeBreakdownTotal(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new RepositoryError("Add at least one valid size quantity.");
+  }
+  const sizes = new Set();
+  let total = 0;
+  for (const row of rows) {
+    if (
+      !row ||
+      typeof row.size !== "string" ||
+      !row.size.trim() ||
+      row.size.trim().length > 32 ||
+      !Number.isInteger(row.quantity) ||
+      row.quantity < 1
+    ) {
+      throw new RepositoryError("Each size requires a name and a positive whole-number quantity.");
+    }
+    const size = row.size.trim().toLocaleLowerCase();
+    if (sizes.has(size)) {
+      throw new RepositoryError("Size names must be unique within an order.");
+    }
+    sizes.add(size);
+    total += row.quantity;
+  }
+  return total;
+}
+
 function serializeUser(user) {
   if (!user) return null;
   return {
@@ -504,7 +531,7 @@ export function createMongoRepository() {
         delete updates.productionUnitId;
       }
       const user = await User.findByIdAndUpdate(id, updates, {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       })
         .populate("buyerOrganization", "name country")
@@ -540,7 +567,21 @@ export function createMongoRepository() {
         ]) {
           if (input[key] !== undefined) current[key] = input[key];
         }
-        const total = input.totalQuantity ?? input.quantity;
+        const sizeRows = input.sizeQuantities ?? input.sizeBreakdown;
+        const requestedTotal = input.totalQuantity ?? input.quantity;
+        const unchangedEmptyBreakdown =
+          Array.isArray(sizeRows) &&
+          sizeRows.length === 0 &&
+          current.sizeQuantities.length === 0 &&
+          (requestedTotal === undefined || requestedTotal === oldQuantity);
+        const sizeTotal =
+          sizeRows === undefined || unchangedEmptyBreakdown
+            ? undefined
+            : getSizeBreakdownTotal(sizeRows);
+        if (requestedTotal !== undefined && sizeTotal !== undefined && requestedTotal !== sizeTotal) {
+          throw new RepositoryError("Size quantities must match the order total.");
+        }
+        const total = requestedTotal ?? sizeTotal;
         if (total !== undefined) {
           current.totalQuantity = total;
           current.workflowStages = current.workflowStages.map((stage) => ({
@@ -574,7 +615,6 @@ export function createMongoRepository() {
             "targetQuantity",
           ) || input.productionTargets;
         }
-        const sizeRows = input.sizeQuantities ?? input.sizeBreakdown;
         if (sizeRows !== undefined) current.sizeQuantities = sizeRows;
         if (input.stage !== undefined || input.currentStage !== undefined) {
           current.currentStage = input.currentStage ?? input.stage;
@@ -662,7 +702,13 @@ export function createMongoRepository() {
         resolveOrganization(input),
         resolveProductionUnit(input),
       ]);
-      const quantity = input.totalQuantity ?? input.quantity;
+      const sizeRows = input.sizeQuantities ?? input.sizeBreakdown;
+      const sizeTotal = getSizeBreakdownTotal(sizeRows);
+      const requestedTotal = input.totalQuantity ?? input.quantity;
+      if (requestedTotal !== undefined && requestedTotal !== sizeTotal) {
+        throw new RepositoryError("Size quantities must match the order total.");
+      }
+      const quantity = requestedTotal ?? sizeTotal;
       const stage = input.currentStage ?? input.stage;
       validateOrderDates(input.orderDate || "", input.exFactoryDate);
       const workflowStages = normalizeWorkflow(input, quantity, stage);
@@ -688,7 +734,7 @@ export function createMongoRepository() {
         notes: input.notes || "",
         productionNotes: input.productionNotes || "",
         totalQuantity: quantity,
-        sizeQuantities: input.sizeQuantities ?? input.sizeBreakdown ?? [],
+        sizeQuantities: sizeRows,
         currentStage: stage,
         status: input.status,
         exFactoryDate: input.exFactoryDate,

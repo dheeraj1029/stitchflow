@@ -212,6 +212,21 @@ test("demo seeding is repeatable and never overwrites user-created records", asy
   );
 });
 
+test("demo seeding is blocked in production", async () => {
+  const previousEnvironment = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    await assert.rejects(
+      seedDemoData(mongoUri),
+      /Demo seeding is disabled in production/,
+    );
+    assert.equal(await Order.countDocuments(), 3);
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnvironment;
+  }
+});
+
 test("browser export import is additive, repeatable, and preserves stage output", async () => {
   const directory = await mkdtemp(join(tmpdir(), "stitchflow-import-"));
   const exportPath = join(directory, "browser-export.json");
@@ -388,6 +403,212 @@ test("database APIs preserve buyer isolation and supervisor unit scoping", async
   });
 });
 
+test("admin user changes persist and deactivation invalidates an existing access token", async () => {
+  await withServer(async (baseUrl) => {
+    const admin = await login(baseUrl, "admin@stitchflow.demo");
+    const organization = await BuyerOrganization.findOne({ name: "Company B (UK)" });
+    const createdResponse = await request(baseUrl, admin.body.accessToken, "/api/users", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Phase 9 Buyer",
+        email: "phase9.buyer@stitchflow.demo",
+        role: "BUYER",
+        buyerOrganizationId: String(organization._id),
+        productionUnitId: null,
+        password: "Phase9-Unique-Test!",
+      }),
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = (await createdResponse.json()).user;
+    assert.equal(created.passwordHash, undefined);
+    const buyerToken = (
+      await login(baseUrl, "phase9.buyer@stitchflow.demo", "Phase9-Unique-Test!")
+    ).body.accessToken;
+    assert.equal(typeof buyerToken, "string");
+
+    const editResponse = await request(
+      baseUrl,
+      admin.body.accessToken,
+      `/api/users/${created.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ name: "Updated Phase 9 Buyer" }),
+      },
+    );
+    assert.equal(editResponse.status, 200);
+    assert.equal((await editResponse.json()).user.name, "Updated Phase 9 Buyer");
+
+    const disableResponse = await request(
+      baseUrl,
+      admin.body.accessToken,
+      `/api/users/${created.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: false }),
+      },
+    );
+    assert.equal(disableResponse.status, 200);
+    assert.equal(
+      (await request(baseUrl, buyerToken, "/api/auth/me")).status,
+      401,
+    );
+    assert.equal(
+      (await login(baseUrl, "phase9.buyer@stitchflow.demo", "Phase9-Unique-Test!"))
+        .response.status,
+      401,
+    );
+  });
+});
+
+test("MongoDB APIs create and validate orders, preserve TNA edits, and recalculate size totals", async () => {
+  await withServer(async (baseUrl) => {
+    const merchandiser = await login(baseUrl, "merchandiser@stitchflow.demo");
+    const token = merchandiser.body.accessToken;
+    const options = await (
+      await request(baseUrl, token, "/api/order-options")
+    ).json();
+    const milestones = [
+      ["order-confirmation", "Order Confirmation"],
+      ["sample-approval", "Sample Approval"],
+      ["fabric-in-house", "Fabric In-house"],
+      ["cutting-start", "Cutting Start"],
+      ["stitching-start", "Stitching Start"],
+      ["finishing-start", "Finishing Start"],
+      ["final-inspection", "Final Inspection"],
+      ["packing-completion", "Packing Completion"],
+      ["ex-factory", "Ex-Factory"],
+    ].map(([key, name], sortOrder) => ({
+      id: key,
+      key,
+      name,
+      plannedDate:
+        key === "ex-factory"
+          ? "2026-12-10"
+          : `2026-11-${String(7 + sortOrder).padStart(2, "0")}`,
+      required: true,
+      completed: false,
+      completedDate: "",
+      sortOrder,
+    }));
+    const orderInput = {
+      poNumber: "P9-ORDER-CREATE",
+      buyerOrganizationId: options.organizations.find(
+        (organization) => organization.name === "Company B (UK)",
+      ).id,
+      productionUnitId: options.productionUnits.find(
+        (unit) => unit.name === "Unit A",
+      ).id,
+      orderDate: "2026-11-07",
+      style: "Phase 9 sample tee",
+      colour: "Navy",
+      sizeBreakdown: [
+        { size: "S", quantity: 7 },
+        { size: "M", quantity: 5 },
+      ],
+      stage: "Cutting",
+      productionTarget: 12,
+      workflowStages: ["Cutting", "Stitching"],
+      status: "pending",
+      exFactoryDate: "2026-12-10",
+      milestones,
+      isDemo: true,
+      passwordHash: "must-not-be-persisted",
+    };
+
+    const missingBreakdown = await request(baseUrl, token, "/api/orders", {
+      method: "POST",
+      body: JSON.stringify({ ...orderInput, poNumber: "P9-MISSING-SIZES", sizeBreakdown: [] }),
+    });
+    assert.equal(missingBreakdown.status, 400);
+
+    const mismatchedBreakdown = await request(baseUrl, token, "/api/orders", {
+      method: "POST",
+      body: JSON.stringify({
+        ...orderInput,
+        poNumber: "P9-MISMATCHED-SIZES",
+        totalQuantity: 13,
+      }),
+    });
+    assert.equal(mismatchedBreakdown.status, 400);
+
+    const createdResponse = await request(baseUrl, token, "/api/orders", {
+      method: "POST",
+      body: JSON.stringify(orderInput),
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = (await createdResponse.json()).order;
+    assert.equal(created.quantity, 12);
+    assert.equal(created.isDemo, false);
+    assert.equal(created.passwordHash, undefined);
+    assert.equal(created.sizeBreakdown.reduce((sum, row) => sum + row.quantity, 0), 12);
+
+    const duplicateResponse = await request(baseUrl, token, "/api/orders", {
+      method: "POST",
+      body: JSON.stringify(orderInput),
+    });
+    assert.equal(duplicateResponse.status, 409);
+
+    const changedMilestones = created.milestones.map((milestone) => ({
+      ...milestone,
+      plannedDate:
+        milestone.key === "sample-approval"
+          ? "2026-11-10"
+          : milestone.plannedDate,
+    }));
+    const dateResponse = await request(
+      baseUrl,
+      token,
+      "/api/orders/P9-ORDER-CREATE",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          exFactoryDate: "2026-12-11",
+          milestones: changedMilestones.map((milestone) => ({
+            ...milestone,
+            plannedDate:
+              milestone.key === "ex-factory"
+                ? "2026-12-11"
+                : milestone.plannedDate,
+          })),
+        }),
+      },
+    );
+    assert.equal(dateResponse.status, 200);
+
+    const sizeResponse = await request(
+      baseUrl,
+      token,
+      "/api/orders/P9-ORDER-CREATE",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          sizeBreakdown: [
+            { size: "S", quantity: 8 },
+            { size: "M", quantity: 7 },
+          ],
+        }),
+      },
+    );
+    assert.equal(sizeResponse.status, 200);
+
+    const reopened = (await (
+      await request(baseUrl, token, "/api/orders/P9-ORDER-CREATE")
+    ).json()).order;
+    assert.equal(reopened.quantity, 15);
+    assert.equal(reopened.exFactoryDate, "2026-12-11");
+    assert.equal(
+      reopened.milestones.find((milestone) => milestone.key === "sample-approval")
+        .plannedDate,
+      "2026-11-10",
+    );
+    assert.equal(
+      reopened.productionTargets.find((target) => target.stage === "Cutting")
+        .targetQuantity,
+      15,
+    );
+  });
+});
+
 test("order updates and stage-specific production output persist", async () => {
   await withServer(async (baseUrl) => {
     const merchandiser = await login(baseUrl, "merchandiser@stitchflow.demo");
@@ -403,6 +624,8 @@ test("order updates and stage-specific production output persist", async () => {
         method: "PATCH",
         body: JSON.stringify({
           exFactoryDate: "2026-11-21",
+          quantity: originalOrder.quantity,
+          sizeBreakdown: originalOrder.sizeBreakdown,
           milestones: originalOrder.milestones.map((milestone) =>
             milestone.key === "ex-factory"
               ? { ...milestone, plannedDate: "2026-11-21" }
@@ -520,6 +743,39 @@ test("production update create, edit, and delete use transactions without double
   await withServer(async (baseUrl) => {
     const supervisor = await login(baseUrl, "supervisor@stitchflow.demo");
     const token = supervisor.body.accessToken;
+    const originalSave = Order.prototype.save;
+    Order.prototype.save = async function failTransactionalOrderWrite(options) {
+      if (options?.session) {
+        throw new Error("Injected transaction write failure.");
+      }
+      return originalSave.call(this, options);
+    };
+    try {
+      const failedWrite = await request(baseUrl, token, "/api/production-updates", {
+        method: "POST",
+        body: JSON.stringify({
+          orderId: "B-PO-88213",
+          stage: "Stitching",
+          productionDate: "2026-11-07",
+          completedQuantity: 100,
+          issueNote: "This transaction must roll back.",
+        }),
+      });
+      assert.equal(failedWrite.status, 500);
+    } finally {
+      Order.prototype.save = originalSave;
+    }
+    assert.equal(await ProductionUpdate.countDocuments(), 0);
+    const unchanged = (await (
+      await request(baseUrl, token, "/api/orders/B-PO-88213")
+    ).json()).order;
+    assert.equal(unchanged.stageOutput, 6800);
+    assert.equal(
+      unchanged.productionTargets.find((target) => target.stage === "Finishing")
+        .currentOutput,
+      0,
+    );
+
     const createdResponse = await request(baseUrl, token, "/api/production-updates", {
       method: "POST",
       body: JSON.stringify({
@@ -535,6 +791,12 @@ test("production update create, edit, and delete use transactions without double
     const created = (await createdResponse.json()).update;
     let order = (await (await request(baseUrl, token, "/api/orders/B-PO-88213")).json()).order;
     assert.equal(order.stageOutput, 6900);
+    assert.equal(order.status, "on-track");
+    assert.equal(
+      order.productionTargets.find((target) => target.stage === "Finishing")
+        .currentOutput,
+      0,
+    );
 
     const editResponse = await request(
       baseUrl,
@@ -567,8 +829,30 @@ test("production update create, edit, and delete use transactions without double
     });
     assert.equal(invalid.status, 400);
     assert.equal(await ProductionUpdate.countDocuments(), 1);
+    const failedEdit = await request(
+      baseUrl,
+      token,
+      `/api/production-updates/${created.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          orderId: "B-PO-88213",
+          stage: "Stitching",
+          productionDate: "2026-11-07",
+          completedQuantity: 6000,
+          issueNote: "Invalid edit must leave the original output intact.",
+        }),
+      },
+    );
+    assert.equal(failedEdit.status, 400);
+    assert.equal((await ProductionUpdate.findById(created.id)).quantity, 250);
     order = (await (await request(baseUrl, token, "/api/orders/B-PO-88213")).json()).order;
     assert.equal(order.stageOutput, 7050);
+    assert.equal(
+      order.productionTargets.find((target) => target.stage === "Finishing")
+        .currentOutput,
+      0,
+    );
 
     const deleteResponse = await request(
       baseUrl,
@@ -579,7 +863,107 @@ test("production update create, edit, and delete use transactions without double
     assert.equal(deleteResponse.status, 204);
     order = (await (await request(baseUrl, token, "/api/orders/B-PO-88213")).json()).order;
     assert.equal(order.stageOutput, 6800);
+    assert.equal(order.status, "on-track");
     assert.equal(await ProductionUpdate.countDocuments(), 0);
+  });
+});
+
+test("issue classification failure can be retried and audited before review", async () => {
+  let attempts = 0;
+  const classification = {
+    detectedLanguage: "English",
+    translatedNote: "The machine stopped.",
+    category: "MACHINE_BREAKDOWN",
+    severity: "MEDIUM",
+    explanation: "The note describes a machine stoppage.",
+    confidence: 0.9,
+    needsReview: true,
+  };
+  await withServer(async (baseUrl) => {
+    const supervisor = await login(baseUrl, "supervisor@stitchflow.demo");
+    const merchandiser = await login(baseUrl, "merchandiser@stitchflow.demo");
+    const created = await request(
+      baseUrl,
+      supervisor.body.accessToken,
+      "/api/issues",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          id: "p9-retry-issue",
+          orderId: "B-PO-88213",
+          stage: "Stitching",
+          originalNote: "Machine stopped on the line.",
+          languageHint: "en",
+        }),
+      },
+    );
+    assert.equal(created.status, 201);
+    const issueId = (await created.json()).issue.id;
+    const classificationInput = {
+      issueId,
+      orderId: "B-PO-88213",
+      stage: "Stitching",
+      originalNote: "Machine stopped on the line.",
+      languageHint: "en",
+    };
+
+    const failed = await request(
+      baseUrl,
+      supervisor.body.accessToken,
+      "/api/issues/classify",
+      { method: "POST", body: JSON.stringify(classificationInput) },
+    );
+    assert.equal(failed.status, 502);
+    assert.doesNotMatch(await failed.text(), /provider secret|stack/i);
+
+    const retried = await request(
+      baseUrl,
+      supervisor.body.accessToken,
+      "/api/issues/classify",
+      { method: "POST", body: JSON.stringify(classificationInput) },
+    );
+    assert.equal(retried.status, 200);
+    let issue = (await (
+      await request(baseUrl, merchandiser.body.accessToken, "/api/issues")
+    ).json()).issues.find((item) => item.id === issueId);
+    assert.equal(issue.originalNote, "Machine stopped on the line.");
+    assert.ok(
+      issue.auditHistory.some((entry) => entry.event === "AI_CLASSIFICATION_FAILED"),
+    );
+    assert.ok(
+      issue.auditHistory.some((entry) => entry.event === "CLASSIFICATION_RETRIED"),
+    );
+    assert.ok(
+      issue.auditHistory.some((entry) => entry.event === "AI_CLASSIFICATION_COMPLETED"),
+    );
+
+    const reviewed = await request(
+      baseUrl,
+      merchandiser.body.accessToken,
+      `/api/issues/${issueId}/review`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          decision: "CONFIRMED",
+          translation: "The machine stopped at the sewing line.",
+          category: "QUALITY_DEFECT",
+          severity: "LOW",
+          reviewerNote: "Category and severity corrected.",
+        }),
+      },
+    );
+    assert.equal(reviewed.status, 200);
+    issue = (await reviewed.json()).issue;
+    assert.equal(issue.originalNote, "Machine stopped on the line.");
+    assert.equal(issue.confirmedCategory, "QUALITY_DEFECT");
+    assert.ok(issue.auditHistory.some((entry) => entry.event === "CATEGORY_CHANGED"));
+    assert.equal(attempts, 2);
+  }, async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new Error("provider secret and stack must not reach the client");
+    }
+    return classification;
   });
 });
 

@@ -325,15 +325,16 @@ export function createApp({
   app.locals.repository = repository;
   app.disable("x-powered-by");
   app.use(helmet());
+  app.use((request, response, next) => {
+    const origin = request.get("origin");
+    if (origin && origin !== frontendOrigin) {
+      return response.status(403).json({ error: "This origin is not allowed." });
+    }
+    return next();
+  });
   app.use(
     cors({
-      origin(origin, callback) {
-        if (!origin || origin === frontendOrigin) {
-          callback(null, true);
-        } else {
-          callback(new Error("Origin is not allowed."));
-        }
-      },
+      origin: frontendOrigin,
       methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
     }),

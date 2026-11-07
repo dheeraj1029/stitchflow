@@ -246,6 +246,9 @@ async function seedCollection(Model, records, uniqueField) {
 }
 
 export async function seedDemoData(uri = process.env.MONGODB_URI) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Demo seeding is disabled in production.");
+  }
   await connectDatabase(uri);
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
   const buyerCount = await seedCollection(BuyerOrganization, buyers, "name");

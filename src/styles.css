@@ -2956,6 +2956,7 @@ a {
   overscroll-behavior-inline: contain;
   scrollbar-color: #cbd4df transparent;
   scrollbar-width: thin;
+  contain: paint;
 }
 
 .risk-table {

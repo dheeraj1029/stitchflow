@@ -66,7 +66,7 @@ export default function OrdersPage() {
 
       <Card className="order-list-card" title="All production orders">
         <p className="order-list-card__caption">
-          Search and filter your orders. Changes are saved in this browser.
+          Search and filter your orders. Changes are saved to the connected database.
         </p>
         <OrderFilters
           buyers={buyers}
@@ -84,7 +84,7 @@ export default function OrdersPage() {
         />
         <p className="demo-data-note">
           Sample orders and production-unit names are illustrative. New and
-          edited orders are stored locally in this browser.
+          edited orders are stored in the connected database.
         </p>
         <div className="table-card__summary">
           <p aria-live="polite">

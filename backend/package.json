@@ -7,9 +7,10 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node src/seed/seed.js",
+    "admin:create": "node src/seed/createAdmin.js",
     "import:browser": "node src/migrations/import-browser-export.js",
     "test": "node --test",
-    "test:db": "node --test test/mongo.test.js"
+    "test:db": "node --test test/mongo.test.js test/adminBootstrap.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

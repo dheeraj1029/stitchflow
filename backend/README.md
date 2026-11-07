@@ -69,10 +69,12 @@ The local URI is:
 mongodb://127.0.0.1:27017/stitchflow?replicaSet=rs0
 ```
 
-`PORT` defaults to `3001` and `FRONTEND_URL` to
-`http://127.0.0.1:5173`. `OPENAI_API_KEY` and `OPENAI_MODEL` are optional for
-the existing issue-classification integration; leave them blank to run the
-rest of the app without live classification. The API binds to loopback.
+`PORT` defaults to `3001`, `HOST` to `127.0.0.1` during development, and
+`FRONTEND_URL` to `http://127.0.0.1:5173`. In production, `HOST` defaults to
+`0.0.0.0` so a hosting platform or reverse proxy can reach the API. Configure
+`FRONTEND_URL` as an HTTP(S) origin without a path. `OPENAI_API_KEY` and
+`OPENAI_MODEL` are optional for the existing issue-classification integration;
+leave them blank to run the rest of the app without live classification.
 
 Seed the five demo accounts, two buyer organizations, three demo production
 units, three sample orders and representative issue records:
@@ -82,9 +84,34 @@ npm run seed --prefix backend
 ```
 
 Seeding is idempotent and inserts only missing records; it will not reset
-changes to existing demo records. All five demo accounts use
+changes to existing demo records. It is disabled when `NODE_ENV=production`.
+All five demo accounts use
 `StitchFlowDemo2026!`; these are for local demonstration only. Set unique
 passwords before using a non-local environment.
+
+## Initial administrator bootstrap
+
+The public API does not provide unauthenticated administrator creation. To
+create the first administrator for a production database, keep public access
+closed and run this one-time command from a trusted operator terminal after
+configuring `MONGODB_URI` in `backend\.env`:
+
+```cmd
+set "STITCHFLOW_ALLOW_ADMIN_BOOTSTRAP=true"
+npm run admin:create --prefix backend
+set "STITCHFLOW_ALLOW_ADMIN_BOOTSTRAP="
+```
+
+The command prompts for the administrator name and email, requires an explicit
+confirmation phrase, and reads the new password twice without echoing it.
+Passwords must be at least 10 characters and at most 72 UTF-8 bytes. The
+password is stored only as a bcrypt hash. The command refuses to run in
+production unless the temporary opt-in above is set, and the database
+transaction and one-time lock prevent creating another initial administrator.
+After it succeeds, clear the temporary CMD variable and close the operator
+session. Existing administrators are managed through the authenticated admin
+interface; this bootstrap command cannot be used to reset or replace them.
+Demo seeding remains disabled in production.
 
 Open two more CMD terminals in the repository root:
 
