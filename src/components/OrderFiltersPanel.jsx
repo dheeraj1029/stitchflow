@@ -5,13 +5,15 @@ export default function OrderFiltersPanel(props) {
   return (
     <Card className="order-list-card" title="Production orders">
       <p className="order-list-card__caption">
-        Track current-stage output and follow up on sample orders.
+        Track current-stage output and follow up on production orders.
       </p>
       <OrderFilters {...props} />
-      <p className="demo-data-note">
-        Demo data · production units and example statuses are illustrative and
-        are not calculated or live.
-      </p>
+      {props.hasDemoOrders && (
+        <p className="demo-data-note">
+          Seeded demo orders are marked Demo. Their saved statuses are separate
+          from the calculated production-risk signals.
+        </p>
+      )}
       <div className="production-orders">
         {props.children}
       </div>

@@ -3,6 +3,7 @@ import { once } from "node:events";
 import test from "node:test";
 import { createApp } from "../src/app.js";
 import { ClassificationError } from "../src/classification.js";
+import { createDemoRepository } from "../src/demoRepository.js";
 
 const JWT_SECRET = "test-secret-value-that-is-long-enough-for-hs256";
 const DEMO_PASSWORD = "StitchFlowDemo2026!";
@@ -23,7 +24,11 @@ const validResult = {
 };
 
 async function withServer(run, options = {}) {
-  const app = createApp({ jwtSecret: JWT_SECRET, ...options });
+  const app = createApp({
+    jwtSecret: JWT_SECRET,
+    repository: createDemoRepository(),
+    ...options,
+  });
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();

@@ -3,12 +3,17 @@ import jwt from "jsonwebtoken";
 import { once } from "node:events";
 import test from "node:test";
 import { createApp } from "../src/app.js";
+import { createDemoRepository } from "../src/demoRepository.js";
 
 const SECRET = "phase-seven-test-secret-with-at-least-thirty-two-bytes";
 const PASSWORD = "StitchFlowDemo2026!";
 
 async function withServer(run, options = {}) {
-  const app = createApp({ jwtSecret: SECRET, ...options });
+  const app = createApp({
+    jwtSecret: SECRET,
+    repository: createDemoRepository(),
+    ...options,
+  });
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   const { port } = server.address();

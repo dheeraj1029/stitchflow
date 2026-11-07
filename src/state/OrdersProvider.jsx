@@ -1,88 +1,69 @@
-import { useMemo, useState } from "react";
-import { getBaselineStageOutput } from "../data/productionOrders.js";
-import { loadOrderData, writeOrderData } from "../data/orderStorage.js";
-import { useProductionUpdates } from "./ProductionUpdatesContext.js";
-import { OrdersContext } from "./OrdersContext.js";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../features/auth/AuthContext.js";
+import { listOrders, saveOrder as saveOrderRequest } from "../features/orders/ordersApi.js";
+import { OrdersContext } from "./OrdersContext.js";
 
 export function OrdersProvider({ children }) {
-  const [initialData] = useState(loadOrderData);
-  const [storedOrders, setStoredOrders] = useState(initialData.orders);
-  const [storageError, setStorageError] = useState(initialData.error);
-  const { updates } = useProductionUpdates();
   const { user } = useAuth();
-  const orders = useMemo(
-    () =>
-      storedOrders
-        .filter(
-          (order) =>
-            user?.role !== "SUPERVISOR" ||
-            order.productionUnit === user.productionUnitName,
-        )
-        .map((order) => {
-        const baselineStageOutput = getBaselineStageOutput(order);
-        const stageOutput =
-          baselineStageOutput +
-          updates.reduce(
-            (total, update) =>
-              update.orderId === order.id && update.stage === order.stage
-                ? total + update.completedQuantity
-                : total,
-            0,
-          );
-        return { ...order, baselineStageOutput, stageOutput };
-      }),
-    [storedOrders, updates, user],
-  );
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestId = useRef(0);
 
-  function saveOrder(order, existingId = null) {
-    const duplicate = orders.some(
-      (savedOrder) =>
-        savedOrder.poNumber.trim().toLocaleLowerCase() ===
-          order.poNumber.trim().toLocaleLowerCase() &&
-        savedOrder.id !== existingId,
-    );
-
-    if (duplicate) {
-      return { ok: false, error: "That PO number is already in use." };
-    }
-
-    const updatedOrders = existingId
-      ? storedOrders.map((savedOrder) =>
-          savedOrder.id === existingId
-            ? persistableOrder(order, existingId, savedOrder.stageOutput)
-            : savedOrder,
-        )
-      : [...storedOrders, persistableOrder(order, order.poNumber, 0)];
-
+  const reload = useCallback(async () => {
+    const activeRequest = ++requestId.current;
+    setLoading(true);
+    setError("");
     try {
-      writeOrderData(updatedOrders);
-      setStoredOrders(updatedOrders);
-      setStorageError("");
-      return {
-        ok: true,
-        order: existingId ? { ...order, id: existingId } : order,
-      };
-    } catch {
-      const error =
-        "Your changes could not be saved to this browser. Check storage availability and try again.";
-      setStorageError(error);
-      return { ok: false, error };
+      const savedOrders = await listOrders();
+      if (requestId.current === activeRequest) setOrders(savedOrders);
+      return savedOrders;
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error
+          ? loadError.message
+          : "Orders could not be loaded.";
+      if (requestId.current === activeRequest) setError(message);
+      throw loadError;
+    } finally {
+      if (requestId.current === activeRequest) setLoading(false);
     }
-  }
+  }, []);
 
-  const value = { orders, saveOrder, storageError };
+  useEffect(() => {
+    let active = true;
+    reload().catch(() => {
+      if (!active) return;
+    });
+    return () => {
+      active = false;
+      requestId.current += 1;
+    };
+  }, [reload, user?.id]);
+
+  const saveOrder = useCallback(
+    async (order, existingId = null) => {
+      try {
+        const savedOrder = await saveOrderRequest(order, existingId);
+        await reload();
+        return { ok: true, order: savedOrder };
+      } catch (saveError) {
+        const message =
+          saveError instanceof Error
+            ? saveError.message
+            : "The order could not be saved.";
+        setError(message);
+        return { ok: false, error: message };
+      }
+    },
+    [reload],
+  );
 
   return (
-    <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>
+    <OrdersContext.Provider
+      value={{ orders, saveOrder, loading, error, reload }}
+    >
+      {children}
+    </OrdersContext.Provider>
   );
-}
-
-function persistableOrder(order, id, fallbackBaseline) {
-  const { baselineStageOutput, ...savedOrder } = order;
-  return {
-    ...savedOrder,
-    id,
-    stageOutput: baselineStageOutput ?? fallbackBaseline,
-  };
 }

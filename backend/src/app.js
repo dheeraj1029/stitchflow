@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import express from "express";
+import mongoose from "mongoose";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import {
@@ -16,6 +17,8 @@ import {
   USER_ROLES,
   createDemoRepository,
 } from "./demoRepository.js";
+import { createMongoRepository, RepositoryError } from "./repositories/mongoRepository.js";
+import { isDatabaseReady } from "./config/database.js";
 import {
   ClassificationError,
   ISSUE_CATEGORIES,
@@ -82,6 +85,7 @@ function safeOrder(order, repository) {
   });
   return {
     id: order.id,
+    isDemo: order.isDemo ?? true,
     poNumber: order.poNumber,
     buyerOrganizationId: order.buyerOrganizationId,
     buyer: order.buyer,
@@ -174,10 +178,6 @@ function validateUserFields(
       return { error: "Provide a valid email address." };
     }
     value.email = input.email.trim().toLowerCase();
-    const duplicate = repository.findUserByEmail(value.email);
-    if (duplicate && duplicate.id !== existingUser?.id) {
-      return { error: "That email address is already assigned to a user." };
-    }
   }
   if (!partial || Object.hasOwn(input, "name")) {
     if (!isValidString(input.name, 120)) {
@@ -194,6 +194,7 @@ function validateUserFields(
   if (!partial || Object.hasOwn(input, "buyerOrganizationId")) {
     const organizationId = input.buyerOrganizationId || null;
     if (
+      !repository.isPersistent &&
       organizationId !== null &&
       !DEMO_ORGANIZATIONS.some((item) => item.id === organizationId)
     ) {
@@ -204,6 +205,7 @@ function validateUserFields(
   if (!partial || Object.hasOwn(input, "productionUnitId")) {
     const unitId = input.productionUnitId || null;
     if (
+      !repository.isPersistent &&
       unitId !== null &&
       !DEMO_PRODUCTION_UNITS.some((item) => item.id === unitId)
     ) {
@@ -290,16 +292,20 @@ function validateReview(input) {
 
 export function createApp({
   classify = classifyIssue,
-  repository = createDemoRepository(),
+  repository = createMongoRepository(),
   jwtSecret = process.env.JWT_SECRET || randomBytes(64).toString("hex"),
   jwtExpiresIn = process.env.JWT_EXPIRES_IN || "1h",
-  frontendOrigin = process.env.FRONTEND_ORIGIN || "http://127.0.0.1:5173",
+  frontendOrigin =
+    process.env.FRONTEND_URL ||
+    process.env.FRONTEND_ORIGIN ||
+    "http://127.0.0.1:5173",
   loginLimit = 5,
 } = {}) {
   if (typeof jwtSecret !== "string" || Buffer.byteLength(jwtSecret) < 32) {
     throw new Error("JWT_SECRET must be at least 32 bytes.");
   }
   const app = express();
+  repository.isPersistent ??= false;
   const authenticate = createAuthenticationMiddleware(repository, jwtSecret);
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -328,17 +334,30 @@ export function createApp({
           callback(new Error("Origin is not allowed."));
         }
       },
-      methods: ["GET", "POST", "PATCH", "OPTIONS"],
+      methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
   );
   app.use(express.json({ limit: "16kb", strict: true }));
 
   app.get("/api/health", (_request, response) => {
-    response.json({ status: "ok" });
+    const ready = !repository.isPersistent || isDatabaseReady();
+    response.status(ready ? 200 : 503).json({
+      status: ready ? "ok" : "unavailable",
+      database: ready ? "connected" : "disconnected",
+    });
   });
 
-  app.post("/api/auth/login", loginLimiter, async (request, response) => {
+  app.use("/api", (request, response, next) => {
+    if (repository.isPersistent && !isDatabaseReady()) {
+      return response.status(503).json({
+        error: "The database is temporarily unavailable. Please try again.",
+      });
+    }
+    return next();
+  });
+
+  app.post("/api/auth/login", loginLimiter, async (request, response, next) => {
     const email =
       typeof request.body?.email === "string"
         ? request.body.email.trim().toLowerCase()
@@ -353,54 +372,121 @@ export function createApp({
     ) {
       return response.status(401).json({ error: "Email or password is incorrect." });
     }
-    const user = repository.findUserByEmail(email);
-    const passwordMatches = await bcrypt.compare(
-      password,
-      user?.passwordHash || "$2b$10$H8VkmgMIvSginphuJJ4z9eUwEvLW2xeTdFDEsQDBZWFAHtM/wFibW",
-    );
-    if (!user || !user.isActive || !passwordMatches) {
-      return response.status(401).json({ error: "Email or password is incorrect." });
+    try {
+      const user = await repository.findUserByEmail(email);
+      const passwordMatches = await bcrypt.compare(
+        password,
+        user?.passwordHash || "$2b$10$H8VkmgMIvSginphuJJ4z9eUwEvLW2xeTdFDEsQDBZWFAHtM/wFibW",
+      );
+      if (!user || !user.isActive || !passwordMatches) {
+        return response.status(401).json({ error: "Email or password is incorrect." });
+      }
+      return response.json({
+        accessToken: createAccessToken(user, jwtSecret, jwtExpiresIn),
+        user: toSafeUser(user, repository),
+      });
+    } catch (error) {
+      return next(error);
     }
-    return response.json({
-      accessToken: createAccessToken(user, jwtSecret, jwtExpiresIn),
-      user: toSafeUser(user, repository),
-    });
   });
 
   app.get("/api/auth/me", authenticate, (request, response) => {
     response.json({ user: toSafeUser(request.authUser, repository) });
   });
 
-  app.get("/api/users", authenticate, authorizeRoles("ADMIN"), (_request, response) => {
-    response.json({
-      users: repository.users.map((user) => toSafeUser(user, repository)),
-      organizations: DEMO_ORGANIZATIONS,
-      productionUnits: DEMO_PRODUCTION_UNITS,
-    });
+  app.get(
+    "/api/order-options",
+    authenticate,
+    authorizeRoles("MERCHANDISER"),
+    async (_request, response, next) => {
+      try {
+        const [organizations, productionUnits] = repository.listOrganizations
+          ? await Promise.all([
+              repository.listOrganizations(),
+              repository.listProductionUnits(),
+            ])
+          : [DEMO_ORGANIZATIONS, DEMO_PRODUCTION_UNITS];
+        return response.json({
+          organizations: organizations.map((item) => ({
+            id: String(item._id || item.id),
+            name: item.name,
+            country: item.country || "",
+          })),
+          productionUnits: productionUnits.map((item) => ({
+            id: String(item._id || item.id),
+            name: item.name,
+          })),
+        });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.post("/api/auth/logout", authenticate, (_request, response) => {
+    response.status(204).end();
   });
 
-  app.post("/api/users", authenticate, authorizeRoles("ADMIN"), async (request, response) => {
-    const validation = validateUserFields(request.body, repository);
-    if (validation.error) {
-      return response.status(400).json({ error: validation.error });
+  app.get("/api/users", authenticate, authorizeRoles("ADMIN"), async (_request, response, next) => {
+    try {
+      const users = repository.listUsers
+        ? await repository.listUsers()
+        : repository.users;
+      const [organizations, productionUnits] = repository.listOrganizations
+        ? await Promise.all([
+            repository.listOrganizations(),
+            repository.listProductionUnits(),
+          ])
+        : [DEMO_ORGANIZATIONS, DEMO_PRODUCTION_UNITS];
+      return response.json({
+        users: users.map((user) => toSafeUser(user, repository)),
+        organizations: organizations.map((item) => ({
+          id: String(item._id || item.id),
+          name: item.name,
+        })),
+        productionUnits: productionUnits.map((item) => ({
+          id: String(item._id || item.id),
+          name: item.name,
+        })),
+      });
+    } catch (error) {
+      return next(error);
     }
-    const { password, ...userFields } = validation.value;
-    const created = repository.createUser({
-      ...userFields,
-      passwordHash: await bcrypt.hash(password, 10),
-    });
-    return response.status(201).json({ user: toSafeUser(created, repository) });
+  });
+
+  app.post("/api/users", authenticate, authorizeRoles("ADMIN"), async (request, response, next) => {
+    try {
+      const validation = validateUserFields(request.body, repository);
+      if (validation.error) {
+        return response.status(400).json({ error: validation.error });
+      }
+      const { password, ...userFields } = validation.value;
+      const duplicate = await repository.findUserByEmail(userFields.email);
+      if (duplicate) {
+        return response.status(409).json({ error: "That email address is already assigned to a user." });
+      }
+      const created = repository.isPersistent
+        ? await repository.createUser({ ...userFields, password })
+        : repository.createUser({
+            ...userFields,
+            passwordHash: await bcrypt.hash(password, 10),
+          });
+      return response.status(201).json({ user: toSafeUser(created, repository) });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.patch(
     "/api/users/:userId",
     authenticate,
     authorizeRoles("ADMIN"),
-    async (request, response) => {
+    async (request, response, next) => {
+      try {
       if (!ID_PATTERN.test(request.params.userId)) {
         return response.status(400).json({ error: "Choose a valid user." });
       }
-      const target = repository.findUserById(request.params.userId);
+      const target = await repository.findUserById(request.params.userId);
       if (!target) {
         return response.status(404).json({ error: "User not found." });
       }
@@ -412,9 +498,21 @@ export function createApp({
         return response.status(400).json({ error: validation.error });
       }
       const updates = { ...validation.value };
-      if (updates.password) {
+      if (updates.email) {
+        const duplicate = await repository.findUserByEmail(updates.email);
+        if (duplicate && duplicate.id !== target.id) {
+          return response.status(409).json({
+            error: "That email address is already assigned to a user.",
+          });
+        }
+      }
+      if (!repository.isPersistent && updates.password) {
         updates.passwordHash = await bcrypt.hash(updates.password, 10);
         delete updates.password;
+      }
+      if (repository.isPersistent) {
+        const updated = await repository.updateUser(request.params.userId, updates);
+        return response.json({ user: toSafeUser(updated, repository) });
       }
       const resultingRole = updates.role ?? target.role;
       const resultingActive = updates.isActive ?? target.isActive;
@@ -434,53 +532,168 @@ export function createApp({
       }
       Object.assign(target, updates);
       return response.json({ user: toSafeUser(target, repository) });
+      } catch (error) {
+        return next(error);
+      }
     },
   );
 
-  app.get("/api/orders", authenticate, (request, response) => {
-    const orders = visibleOrders(request.authUser, repository).map((order) => {
-      if (request.authUser.role !== "BUYER") {
-        return order;
-      }
-      return safeOrder(order, repository);
-    });
-    return response.json({ orders });
+  app.post("/api/orders", authenticate, authorizeRoles("MERCHANDISER"), async (request, response, next) => {
+    try {
+      const order = await repository.saveOrder(request.body);
+      return response.status(201).json({ order });
+    } catch (error) {
+      return next(error);
+    }
   });
 
-  app.get("/api/orders/:orderId", authenticate, (request, response) => {
+  app.get("/api/orders", authenticate, async (request, response, next) => {
+    try {
+      const orders = repository.listOrders
+        ? await repository.listOrders(request.authUser)
+        : visibleOrders(request.authUser, repository).map((order) =>
+            request.authUser.role === "BUYER"
+              ? safeOrder(order, repository)
+              : order,
+          );
+      return response.json({ orders });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.patch("/api/orders/:orderId", authenticate, authorizeRoles("MERCHANDISER"), async (request, response, next) => {
+    try {
+      const order = await repository.saveOrder(request.body, request.params.orderId);
+      return order
+        ? response.json({ order })
+        : response.status(404).json({ error: "Order not found." });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get("/api/orders/:orderId", authenticate, async (request, response, next) => {
+    try {
     if (!ID_PATTERN.test(request.params.orderId)) {
       return response.status(400).json({ error: "Choose a valid order." });
     }
-    const order = repository.findOrder(request.params.orderId);
-    const allowed = order && visibleOrders(request.authUser, repository).some(
-      (item) => item.id === order.id,
-    );
+    const order = await repository.findOrder(request.params.orderId, request.authUser);
+    const allowed = repository.isPersistent
+      ? Boolean(order)
+      : order && visibleOrders(request.authUser, repository).some(
+          (item) => item.id === order.id,
+        );
     if (!allowed) {
       return response.status(404).json({ error: "Order not found." });
     }
     return response.json({
       order:
-        request.authUser.role === "BUYER" ? safeOrder(order, repository) : order,
+        request.authUser.role === "BUYER" && !repository.isPersistent
+          ? safeOrder(order, repository)
+          : order,
     });
+    } catch (error) {
+      return next(error);
+    }
   });
 
-  app.get("/api/issues", authenticate, (request, response) => {
-    return response.json({
-      issues: visibleIssues(request.authUser, repository),
-    });
+  app.get(
+    "/api/production-updates",
+    authenticate,
+    authorizeRoles("ADMIN", "MERCHANDISER", "SUPERVISOR"),
+    async (request, response, next) => {
+    try {
+      if (!repository.isPersistent) {
+        return response.json({ updates: [] });
+      }
+      const updates = await repository.listProductionUpdates(request.authUser);
+      return response.json({ updates });
+    } catch (error) {
+      return next(error);
+    }
+    },
+  );
+
+  app.post(
+    "/api/production-updates",
+    authenticate,
+    authorizeRoles("SUPERVISOR"),
+    async (request, response, next) => {
+      try {
+        const update = await repository.createProductionUpdate(
+          request.body,
+          request.authUser,
+        );
+        return response.status(201).json({ update });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/production-updates/:updateId",
+    authenticate,
+    authorizeRoles("SUPERVISOR"),
+    async (request, response, next) => {
+      try {
+        const update = await repository.updateProductionUpdate(
+          request.params.updateId,
+          request.body,
+          request.authUser,
+        );
+        return update
+          ? response.json({ update })
+          : response.status(404).json({ error: "Production update not found." });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.delete(
+    "/api/production-updates/:updateId",
+    authenticate,
+    authorizeRoles("SUPERVISOR"),
+    async (request, response, next) => {
+      try {
+        const update = await repository.deleteProductionUpdate(
+          request.params.updateId,
+          request.authUser,
+        );
+        return update?.deleted
+          ? response.status(204).end()
+          : response.status(404).json({ error: "Production update not found." });
+      } catch (error) {
+        return next(error);
+      }
+    },
+  );
+
+  app.get("/api/issues", authenticate, async (request, response, next) => {
+    try {
+      const issues = repository.listIssues
+        ? await repository.listIssues(request.authUser)
+        : visibleIssues(request.authUser, repository);
+      return response.json({ issues });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   app.post(
     "/api/issues",
     authenticate,
     authorizeRoles("SUPERVISOR", "MERCHANDISER"),
-    (request, response) => {
+    async (request, response, next) => {
+      try {
       const validation = validateClassificationInput(request.body);
       if (!validation.ok) {
         return response.status(400).json({ error: validation.error });
       }
       const { orderId, stage, originalNote, languageHint } = validation.value;
-      const order = repository.findOrder(orderId);
+      const order = await repository.findOrder(orderId, request.authUser);
       if (!order) {
         return response.status(404).json({ error: "Order not found." });
       }
@@ -491,11 +704,30 @@ export function createApp({
         return response.status(404).json({ error: "Order not found." });
       }
       if (!order.workflowStages.includes(stage)) {
-        return response.status(400).json({ error: "Choose a stage in this order's workflow." });
+        const workflow = order.workflowStages.map((item) =>
+          typeof item === "string" ? item : item.name,
+        );
+        if (!workflow.includes(stage)) {
+          return response.status(400).json({ error: "Choose a stage in this order's workflow." });
+        }
       }
       const requestedId = request.body.id;
       if (requestedId !== undefined && !ID_PATTERN.test(requestedId)) {
         return response.status(400).json({ error: "Choose a valid issue identifier." });
+      }
+      if (repository.isPersistent) {
+        const issue = await repository.createIssue(
+          {
+            orderId,
+            stage,
+            originalNote,
+            languageHint,
+            clientRequestId: requestedId,
+          },
+          request.authUser,
+        );
+        if (!issue) return response.status(404).json({ error: "Order not found." });
+        return response.status(issue.created ? 201 : 200).json({ issue });
       }
       const id = requestedId || randomUUID();
       const existing = repository.findIssue(id);
@@ -540,6 +772,9 @@ export function createApp({
       return response.status(201).json({
         issue: { id: issue.id, reviewStatus: issue.reviewStatus },
       });
+      } catch (error) {
+        return next(error);
+      }
     },
   );
 
@@ -548,7 +783,8 @@ export function createApp({
     authenticate,
     authorizeRoles("SUPERVISOR", "MERCHANDISER"),
     classificationLimiter,
-    async (request, response) => {
+    async (request, response, next) => {
+      try {
       const validation = validateClassificationInput(request.body);
       if (!validation.ok) {
         return response.status(400).json({ error: validation.error });
@@ -557,7 +793,10 @@ export function createApp({
       if (issueId !== undefined && !ID_PATTERN.test(issueId)) {
         return response.status(400).json({ error: "Choose a valid issue." });
       }
-      const order = repository.findOrder(validation.value.orderId);
+      const order = await repository.findOrder(
+        validation.value.orderId,
+        request.authUser,
+      );
       if (
         !order ||
         (request.authUser.role === "SUPERVISOR" &&
@@ -567,7 +806,7 @@ export function createApp({
       }
       let issue = null;
       if (issueId) {
-        issue = repository.findIssue(issueId);
+        issue = await repository.findIssue(issueId);
         const userCanAccessIssue =
           issue &&
           issue.orderId === validation.value.orderId &&
@@ -585,20 +824,24 @@ export function createApp({
       try {
         const result = await classify(validation.value);
         if (issue) {
-          issue.detectedLanguage = result.detectedLanguage;
-          issue.suggestedTranslation = result.translatedNote;
-          issue.suggestedCategory = result.category;
-          issue.suggestedSeverity = result.severity;
-          issue.aiExplanation = result.explanation;
-          issue.confidence = result.confidence;
-          issue.needsReview = result.needsReview;
-          issue.reviewStatus = "PENDING_REVIEW";
-          issue.auditHistory.push({
-            event: "AI_CLASSIFIED",
-            timestamp: new Date().toISOString(),
-            suggestedCategory: result.category,
-            suggestedSeverity: result.severity,
-          });
+          if (repository.isPersistent) {
+            await repository.saveClassification(issue.id, result, request.authUser.id);
+          } else {
+            issue.detectedLanguage = result.detectedLanguage;
+            issue.suggestedTranslation = result.translatedNote;
+            issue.suggestedCategory = result.category;
+            issue.suggestedSeverity = result.severity;
+            issue.aiExplanation = result.explanation;
+            issue.confidence = result.confidence;
+            issue.needsReview = result.needsReview;
+            issue.reviewStatus = "PENDING_REVIEW";
+            issue.auditHistory.push({
+              event: "AI_CLASSIFIED",
+              timestamp: new Date().toISOString(),
+              suggestedCategory: result.category,
+              suggestedSeverity: result.severity,
+            });
+          }
         }
         return response.json(result);
       } catch (error) {
@@ -612,9 +855,20 @@ export function createApp({
           SAFE_CLASSIFICATION_ERRORS[code] ||
           "Issue classification is temporarily unavailable. Your issue has been saved; please retry.";
         if (issue) {
-          issue.classificationError = message;
+          if (repository.isPersistent) {
+            await repository.saveClassificationFailure(
+              issue.id,
+              message,
+              request.authUser.id,
+            );
+          } else {
+            issue.classificationError = message;
+          }
         }
         return response.status(status).json({ error: message });
+      }
+      } catch (error) {
+        return next(error);
       }
     },
   );
@@ -623,7 +877,8 @@ export function createApp({
     "/api/issues/:issueId/review",
     authenticate,
     authorizeRoles(...ISSUE_REVIEW_ROLES),
-    (request, response) => {
+    async (request, response, next) => {
+      try {
       if (!ID_PATTERN.test(request.params.issueId)) {
         return response.status(400).json({ error: "Choose a valid issue." });
       }
@@ -631,7 +886,7 @@ export function createApp({
       if (validation.error) {
         return response.status(400).json({ error: validation.error });
       }
-      const issue = repository.findIssue(request.params.issueId);
+      const issue = await repository.findIssue(request.params.issueId);
       if (!issue) {
         return response.status(404).json({ error: "Issue not found." });
       }
@@ -639,6 +894,14 @@ export function createApp({
         return response.status(409).json({ error: "Only pending issues can be reviewed." });
       }
       const { decision, translation, category, severity } = validation.value;
+      if (repository.isPersistent) {
+        const updated = await repository.reviewIssue(
+          request.params.issueId,
+          validation.value,
+          request.authUser,
+        );
+        return response.json({ issue: updated });
+      }
       const timestamp = new Date().toISOString();
       if (decision === "CONFIRMED") {
         issue.confirmedTranslation = translation.trim();
@@ -662,6 +925,9 @@ export function createApp({
           : {}),
       });
       return response.json({ issue });
+      } catch (error) {
+        return next(error);
+      }
     },
   );
 
@@ -676,6 +942,31 @@ export function createApp({
         error: "Provide a valid JSON request.",
       });
     }
+    if (error instanceof RepositoryError) {
+      return response.status(error.status).json({ error: error.message });
+    }
+    if (error?.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0];
+      return response.status(409).json({
+        error:
+          field === "poNumber"
+            ? "That PO number is already in use."
+            : field === "email"
+              ? "That email address is already assigned to a user."
+              : "A record with those details already exists.",
+      });
+    }
+    if (error instanceof mongoose.Error.ValidationError) {
+      return response.status(400).json({ error: "Review the supplied record details." });
+    }
+    if (error instanceof mongoose.Error.CastError) {
+      return response.status(400).json({ error: "A supplied record identifier is invalid." });
+    }
+    console.error(
+      "API request failed.",
+      error?.name || "UnknownError",
+      error?.code || "NO_ERROR_CODE",
+    );
     return response.status(500).json({
       error: "The service could not process this request.",
     });

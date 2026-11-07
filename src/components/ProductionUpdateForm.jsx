@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ImagePlus, Trash2 } from "lucide-react";
 import Button from "./Button.jsx";
 import Card from "./Card.jsx";
@@ -12,6 +12,7 @@ import {
 } from "../data/productionOrders.js";
 import { useOrders } from "../state/OrdersContext.js";
 import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 
 const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const allowedImageTypes = new Map([
@@ -60,14 +61,21 @@ function validateImage(file) {
 }
 
 export default function ProductionUpdateForm() {
+  const { updateId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { orders } = useOrders();
+  const { user } = useAuth();
+  const { orders, loading: ordersLoading } = useOrders();
   const {
     updates,
     saveProductionUpdate,
-    storageError: updateStorageError,
+    updateProductionUpdate,
+    error: updateError,
+    loading: updatesLoading,
   } = useProductionUpdates();
+  const existingUpdate = updateId
+    ? updates.find((item) => item.id === updateId)
+    : null;
   const [orderId, setOrderId] = useState(searchParams.get("order") || "");
   const [stage, setStage] = useState(() => {
     const selectedOrder = orders.find(
@@ -80,6 +88,7 @@ export default function ProductionUpdateForm() {
   const [issueNote, setIssueNote] = useState("");
   const [issueCategory, setIssueCategory] = useState("");
   const [photo, setPhoto] = useState(null);
+  const [existingAttachment, setExistingAttachment] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [errors, setErrors] = useState({});
@@ -92,7 +101,10 @@ export default function ProductionUpdateForm() {
   const target = order ? getStageTarget(order, stage) : null;
   const completedOutput =
     order && stage
-      ? getCumulativeStageOutput(order, stage, updates)
+      ? getCumulativeStageOutput(order, stage, updates) -
+        (existingUpdate?.orderId === order.id && existingUpdate.stage === stage
+          ? existingUpdate.completedQuantity
+          : 0)
       : null;
   const remaining = target
     ? Math.max(target - completedOutput, 0)
@@ -102,6 +114,17 @@ export default function ProductionUpdateForm() {
       orders.slice().sort((a, b) => a.poNumber.localeCompare(b.poNumber)),
     [orders],
   );
+
+  useEffect(() => {
+    if (!existingUpdate) return;
+    setOrderId(existingUpdate.orderId);
+    setStage(existingUpdate.stage);
+    setProductionDate(existingUpdate.productionDate);
+    setCompletedQuantity(String(existingUpdate.completedQuantity));
+    setIssueNote(existingUpdate.issueNote || "");
+    setIssueCategory(existingUpdate.issueCategory || "");
+    setExistingAttachment(existingUpdate.attachment || null);
+  }, [existingUpdate]);
 
   useEffect(
     () => () => {
@@ -134,11 +157,13 @@ export default function ProductionUpdateForm() {
     }
 
     setPhoto(file);
+    setExistingAttachment(null);
     setPhotoPreview(URL.createObjectURL(file));
   }
 
   function removePhoto() {
     setPhoto(null);
+    setExistingAttachment(null);
     setPhotoPreview("");
     setPhotoError("");
     const input = document.getElementById("production-photo");
@@ -147,7 +172,7 @@ export default function ProductionUpdateForm() {
     }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     if (submittingRef.current) {
       return;
@@ -209,31 +234,56 @@ export default function ProductionUpdateForm() {
             size: photo.size,
             previewAvailable: false,
           }
-        : null,
+        : existingAttachment
+          ? {
+              fileName: existingAttachment.fileName,
+              mimeType: existingAttachment.mimeType,
+              size: existingAttachment.size,
+            }
+          : null,
       submittedAt: new Date().toISOString(),
-      supervisor: "Demo Supervisor",
     };
-    const result = saveProductionUpdate(update);
+    const result = existingUpdate
+      ? await updateProductionUpdate(existingUpdate.id, update)
+      : await saveProductionUpdate(update);
     submittingRef.current = false;
     setIsSubmitting(false);
     if (!result.ok) {
       setSubmitError(result.error);
       return;
     }
-    navigate(`/production-updates/${encodeURIComponent(update.id)}`, {
-      state: { message: "Production update saved." },
+    const savedId = result.update?.id || existingUpdate?.id;
+    navigate(`/production-updates/${encodeURIComponent(savedId)}`, {
+      state: { message: existingUpdate ? "Production update saved." : "Production update saved." },
     });
+  }
+
+  if (ordersLoading || updatesLoading) {
+    return <p aria-live="polite" className="page-load-state">Loading production data…</p>;
+  }
+  if (existingUpdate && existingUpdate.submittedById !== user?.id) {
+    return (
+      <section className="buyer-error-state" role="alert">
+        <h1>Production update unavailable</h1>
+        <p>You can only edit production updates that you submitted.</p>
+        <Link className="buyer-outline-link" to="/production-updates">
+          Back to Production Updates
+        </Link>
+      </section>
+    );
   }
 
   return (
     <div className="production-update-form-page">
       <PageHeader
-        description="Record completed production output for one order and stage."
-        title="Submit Production Update"
+        description={existingUpdate
+          ? "Correct this production record. Stage totals are recalculated when it is saved."
+          : "Record completed production output for one order and stage."}
+        title={existingUpdate ? "Edit Production Update" : "Submit Production Update"}
       />
-      {updateStorageError && (
+      {updateError && (
         <p className="storage-warning" role="alert">
-          {updateStorageError}
+          {updateError}
         </p>
       )}
       {submitError && (
@@ -268,7 +318,7 @@ export default function ProductionUpdateForm() {
               error={errors.stage}
               hint={
                 order
-                  ? `Demo workflow for ${order.poNumber}`
+                  ? `Production workflow for ${order.poNumber}`
                   : "Choose an order first."
               }
               id="production-stage"
@@ -348,7 +398,7 @@ export default function ProductionUpdateForm() {
               <input
                 disabled
                 id="supervisor-name"
-                value="Demo Supervisor"
+                value={user?.name || ""}
               />
             </FormField>
             <FormField id="issue-category" label="Issue category">
@@ -448,7 +498,11 @@ export default function ProductionUpdateForm() {
             Cancel
           </Button>
           <Button disabled={isSubmitting} type="submit" variant="primary">
-            {isSubmitting ? "Saving update…" : "Submit Production Update"}
+            {isSubmitting
+              ? "Saving update…"
+              : existingUpdate
+                ? "Save changes"
+                : "Submit Production Update"}
           </Button>
         </div>
       </form>

@@ -1,101 +1,148 @@
-import { useRef, useState } from "react";
-import {
-  applyIssueClassification,
-  confirmIssueReview,
-  markIssueClassificationFailed,
-  rejectIssueReview,
-} from "./issueModel.js";
-import { loadIssueData, writeIssueData } from "./issueStorage.js";
-import { IssuesContext } from "./IssuesContext.js";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext.js";
+import { IssuesContext } from "./IssuesContext.js";
+import {
+  listIssues,
+  reviewSavedIssue,
+  saveIssueForReview,
+} from "./issueApi.js";
 
 export function IssuesProvider({ children }) {
-  const [initialData] = useState(loadIssueData);
-  const [issues, setIssues] = useState(initialData.issues);
-  const issuesRef = useRef(initialData.issues);
-  const [storageError, setStorageError] = useState(initialData.error);
   const { user } = useAuth();
+  const [issues, setIssues] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const requestId = useRef(0);
 
-  function commit(nextIssues, issue, errorMessage) {
+  const reload = useCallback(async () => {
+    const activeRequest = ++requestId.current;
+    setLoading(true);
+    setError("");
     try {
-      writeIssueData(nextIssues);
-      issuesRef.current = nextIssues;
-      setIssues(nextIssues);
-      setStorageError("");
-      return { ok: true, issue };
-    } catch {
-      const error =
-        errorMessage ||
-        "The issue could not be saved in this browser. Check storage availability and try again.";
-      setStorageError(error);
-      return { ok: false, error };
+      const savedIssues = await listIssues();
+      if (requestId.current === activeRequest) setIssues(savedIssues);
+      return savedIssues;
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error
+          ? loadError.message
+          : "Production issues could not be loaded.";
+      if (requestId.current === activeRequest) setError(message);
+      throw loadError;
+    } finally {
+      if (requestId.current === activeRequest) setLoading(false);
     }
-  }
+  }, []);
 
-  function createIssue(issue) {
-    if (issuesRef.current.some((saved) => saved.id === issue.id)) {
-      return { ok: false, error: "This issue was already submitted." };
-    }
-    return commit([...issuesRef.current, issue], issue);
-  }
+  useEffect(() => {
+    let active = true;
+    reload().catch(() => {
+      if (!active) return;
+    });
+    return () => {
+      active = false;
+      requestId.current += 1;
+    };
+  }, [reload, user?.id]);
 
-  function updateWith(operation) {
-    const result = operation(issuesRef.current);
-    if (!result.ok) {
-      return result;
-    }
-    return commit(result.issues, result.issue);
-  }
+  const createIssue = useCallback(
+    async (issue) => {
+      try {
+        const savedIssue = await saveIssueForReview(issue);
+        await reload();
+        return {
+          ok: true,
+          issue: { ...issue, id: savedIssue.id, reviewStatus: savedIssue.reviewStatus },
+        };
+      } catch (saveError) {
+        const message =
+          saveError instanceof Error
+            ? saveError.message
+            : "The issue could not be saved.";
+        setError(message);
+        return { ok: false, error: message };
+      }
+    },
+    [reload],
+  );
 
-  const visibleIssues =
-    user?.role === "SUPERVISOR"
-      ? issues.filter(
-          (issue) => issue.productionUnit === user.productionUnitName,
-        )
-      : issues;
-  const value = {
-    issues: visibleIssues,
-    storageError,
-    createIssue,
-    applyClassification: (id, classification) =>
-      updateWith((current) =>
-        applyIssueClassification(
-          current,
-          id,
-          classification,
-          new Date().toISOString(),
-        ),
-      ),
-    markClassificationFailed: (id, message) =>
-      updateWith((current) =>
-        markIssueClassificationFailed(
-          current,
-          id,
-          message,
-          new Date().toISOString(),
-        ),
-      ),
-    confirmIssue: (id, review) =>
-      updateWith((current) =>
-        confirmIssueReview(
-          current,
-          id,
-          review,
-          new Date().toISOString(),
-        ),
-      ),
-    rejectIssue: (id, note) =>
-      updateWith((current) =>
-        rejectIssueReview(
-          current,
-          id,
-          note,
-          new Date().toISOString(),
-        ),
-      ),
-  };
+  const refreshAfterAction = useCallback(
+    async () => {
+      try {
+        await reload();
+        return { ok: true };
+      } catch (actionError) {
+        return {
+          ok: false,
+          error:
+            actionError instanceof Error
+              ? actionError.message
+              : "The issue could not be refreshed.",
+        };
+      }
+    },
+    [reload],
+  );
+
+  const confirmIssue = useCallback(
+    async (id, review) => {
+      try {
+        await reviewSavedIssue(id, {
+          ...review,
+          decision: "CONFIRMED",
+        });
+        await reload();
+        return { ok: true };
+      } catch (actionError) {
+        return {
+          ok: false,
+          error:
+            actionError instanceof Error
+              ? actionError.message
+              : "The review could not be saved.",
+        };
+      }
+    },
+    [reload],
+  );
+
+  const rejectIssue = useCallback(
+    async (id, reviewerNote) => {
+      try {
+        await reviewSavedIssue(id, {
+          decision: "REJECTED",
+          reviewerNote,
+        });
+        await reload();
+        return { ok: true };
+      } catch (actionError) {
+        return {
+          ok: false,
+          error:
+            actionError instanceof Error
+              ? actionError.message
+              : "The review could not be saved.",
+        };
+      }
+    },
+    [reload],
+  );
 
   return (
-    <IssuesContext.Provider value={value}>{children}</IssuesContext.Provider>
+    <IssuesContext.Provider
+      value={{
+        issues,
+        loading,
+        error,
+        reload,
+        createIssue,
+        applyClassification: refreshAfterAction,
+        markClassificationFailed: refreshAfterAction,
+        confirmIssue,
+        rejectIssue,
+      }}
+    >
+      {children}
+    </IssuesContext.Provider>
   );
 }

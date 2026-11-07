@@ -25,7 +25,7 @@ const numberFormatter = new Intl.NumberFormat("en");
 
 export default function ProductionUpdatesPage() {
   const { orders } = useOrders();
-  const { updates, storageError } = useProductionUpdates();
+  const { updates } = useProductionUpdates();
   const { user } = useAuth();
   const canSubmitUpdates = user?.role === "SUPERVISOR";
   const today = localDate();
@@ -72,12 +72,6 @@ export default function ProductionUpdatesPage() {
         </div>
       </header>
 
-      {storageError && (
-        <p className="storage-warning" role="alert">
-          {storageError}
-        </p>
-      )}
-
       <section
         aria-label="Production update summary"
         className="supervisor-summary"
@@ -110,8 +104,8 @@ export default function ProductionUpdatesPage() {
 
       <Card className="supervisor-orders" title="Orders requiring production updates">
         <p className="supervisor-orders__caption">
-          Demo workflows and stage targets are illustrative. Output includes
-          the original baseline plus saved updates for the same stage only.
+          Seeded demo orders use illustrative stage targets. Output includes
+          each order&apos;s baseline plus saved updates for the same stage only.
         </p>
         {recentOrders.length === 0 ? (
           <p className="details-empty">

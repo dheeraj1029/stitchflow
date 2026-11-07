@@ -61,21 +61,21 @@ export default function Dashboard() {
     {
       label: "On Track",
       value: countByStatus("on-track"),
-      description: "Demo status · illustrative",
+      description: "Saved order status",
       icon: CircleCheck,
       tone: "green",
     },
     {
       label: "At Risk",
       value: countByStatus("at-risk"),
-      description: "Demo status · illustrative",
+      description: "Saved order status",
       icon: Clock3,
       tone: "amber",
     },
     {
       label: "Delayed",
       value: countByStatus("delayed"),
-      description: "Demo status · illustrative",
+      description: "Saved order status",
       icon: CircleAlert,
       tone: "red",
     },
@@ -101,11 +101,16 @@ export default function Dashboard() {
             Current stage output by order
           </p>
         </div>
-        <span className="dashboard__sample-label">Illustrative sample data</span>
+        <span className="dashboard__sample-label">
+          {orders.some((order) => order.isDemo)
+            ? "Includes seeded demo orders"
+            : "Saved production data"}
+        </span>
       </div>
 
       <OrderFiltersPanel
         buyers={buyers}
+        hasDemoOrders={orders.some((order) => order.isDemo)}
         hasActiveFilters={hasActiveFilters}
         onBuyerChange={setSelectedBuyer}
         onReset={resetFilters}

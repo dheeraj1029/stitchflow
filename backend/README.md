@@ -1,52 +1,92 @@
-# StitchFlow Phase 7 demo API
+# StitchFlow MongoDB persistence
 
-The existing Express API now provides demo authentication, role-based
-authorization, organization-scoped buyer order and issue APIs, temporary admin
-user management, and the Phase 6 issue-classification route. The repository is
-in-memory demo data, not a production database. It resets whenever the API
-process restarts.
+The Express API uses MongoDB through Mongoose for users, buyer organizations,
+production units, orders/TNA milestones, production updates, production issues,
+and issue-review audit records. The API does not start until MongoDB is
+reachable. Transactions are used for production output changes and issue review,
+so MongoDB must run as a replica set (Atlas does this by default).
 
-## Demo accounts
+## Requirements
 
-All five seeded accounts use this shared demo password:
+- Node.js and npm versions supported by the root Vite application.
+- A MongoDB Atlas cluster or local MongoDB replica set.
+- The frontend and backend run in separate terminals for local development.
 
-```text
-StitchFlowDemo2026!
+## Atlas setup
+
+1. Create a MongoDB Atlas project and cluster.
+2. Create a database user with access only to the StitchFlow database. Do not
+   use an Atlas account password as the database password.
+3. In **Network Access**, allow only your current development IP address. Avoid
+   `0.0.0.0/0`; remove temporary IP entries when no longer needed.
+4. Copy the Node.js connection string from **Connect → Drivers**. Replace the
+   username, password, and database name in the local `.env` file. URL-encode
+   reserved characters in the database password. Never paste credentials into
+   chat, source code, screenshots, or Git.
+5. Keep TLS enabled (the Atlas URI default), use a strong unique database
+   password, and use Atlas backups for any data you need to retain.
+
+## Local MongoDB replica set on Windows
+
+Install MongoDB Community Server and MongoDB Shell (`mongosh`). In one CMD
+terminal, create the data directory if necessary and start a local single-node
+replica set:
+
+```cmd
+if not exist C:\data\db mkdir C:\data\db
+mongod --replSet rs0 --bind_ip 127.0.0.1 --dbpath C:\data\db
 ```
 
-| Role | Email |
-|---|---|
-| Admin | `admin@stitchflow.demo` |
-| Merchandiser | `merchandiser@stitchflow.demo` |
-| Supervisor | `supervisor@stitchflow.demo` |
-| Buyer — Company B | `buyer.b@stitchflow.demo` |
-| Buyer — Company C | `buyer.c@stitchflow.demo` |
+Keep that terminal open. In a second CMD terminal, initialize the replica set
+once and check that it becomes primary:
 
-Only a bcrypt password hash is stored for these accounts. Do not reuse the demo
-password for any real account.
+```cmd
+mongosh --host 127.0.0.1:27017 --eval "rs.initiate()"
+mongosh --host 127.0.0.1:27017 --eval "rs.status().myState"
+```
 
-## Windows CMD setup
+The second command should print `1`. For subsequent runs, start `mongod` again;
+do not run `rs.initiate()` a second time. This loopback-only setup is for local
+development and is not production hardening.
 
-From the repository root, install the backend packages and copy the example
-environment file:
+## Configure and run (Windows CMD)
+
+From the repository root, install backend dependencies, copy the example
+environment file, and generate a private JWT secret:
 
 ```cmd
 npm install --prefix backend
 copy backend\.env.example backend\.env
+node -e "console.log(require('node:crypto').randomBytes(64).toString('hex'))"
+notepad backend\.env
 ```
 
-Generate a cryptographically random secret:
+Set `MONGODB_URI` to your Atlas URI or the local replica-set URI below, and put
+the generated value in `JWT_SECRET`. Keep `backend\.env` private and untracked.
+The local URI is:
+
+```text
+mongodb://127.0.0.1:27017/stitchflow?replicaSet=rs0
+```
+
+`PORT` defaults to `3001` and `FRONTEND_URL` to
+`http://127.0.0.1:5173`. `OPENAI_API_KEY` and `OPENAI_MODEL` are optional for
+the existing issue-classification integration; leave them blank to run the
+rest of the app without live classification. The API binds to loopback.
+
+Seed the five demo accounts, two buyer organizations, three demo production
+units, three sample orders and representative issue records:
 
 ```cmd
-node -e "console.log(require('node:crypto').randomBytes(64).toString('hex'))"
+npm run seed --prefix backend
 ```
 
-Put that generated value in `backend\.env` as `JWT_SECRET`. Keep `.env` files
-out of Git. Configure `JWT_EXPIRES_IN` as needed; the default is `1h`.
-`OPENAI_API_KEY` and `OPENAI_MODEL` remain server-only and can be left blank.
-No live OpenAI request is required for Phase 7.
+Seeding is idempotent and inserts only missing records; it will not reset
+changes to existing demo records. All five demo accounts use
+`StitchFlowDemo2026!`; these are for local demonstration only. Set unique
+passwords before using a non-local environment.
 
-Open two Windows CMD terminals in the repository root.
+Open two more CMD terminals in the repository root:
 
 Terminal 1 — backend:
 
@@ -60,82 +100,104 @@ Terminal 2 — frontend:
 npm run dev -- --host 127.0.0.1
 ```
 
-Open the Vite URL printed in Terminal 2. The default Vite API proxy forwards
-`/api` to `127.0.0.1:3001`; the default CORS origin is
-`http://127.0.0.1:5173`.
+Open the Vite URL shown in Terminal 2. Stop each process with `Ctrl+C`. The
+backend must be connected and seeded before signing in. The frontend no longer
+uses browser-local records as a fallback; a backend/database error is shown
+with a retry action rather than displaying stale sample state.
 
-If `JWT_SECRET` is omitted, the API generates a cryptographically random
-process-only development secret and prints a warning. Sessions then become
-invalid when the backend restarts. Configure a random value in `.env` for
-repeatable local testing.
+## Data behavior and migration from browser storage
 
-## Authentication and security
+Orders, production updates, and issue history are persisted in MongoDB after
+this phase. The current-stage output is stored separately from production
+updates: the baseline output plus updates for that **same stage** determines
+the current output. Output from different stages is never combined.
 
-- Passwords use bcrypt hashes; plaintext passwords and hashes are not returned
-  by APIs.
-- Login returns an HS256 JWT containing only the subject identifier. Protected
-  middleware verifies it and reads the current active role and associations
-  from the server-side repository.
-- Access tokens are held in frontend memory only. Reloading the page requires
-  signing in again; logout and expired/invalid-token responses clear the
-  in-memory session.
-- The login endpoint is rate-limited to five attempts per 15 minutes per IP.
-  Classification retains its Phase 6 limit of ten requests per minute.
-- Helmet security headers and a single configured CORS origin are applied.
-- Buyer organization and supervisor production-unit authorization is derived
-  from the authenticated server-side user, never from browser query/body
-  filters.
-- The backend binds to loopback for local demo use. This setup is not intended
-  for production deployment.
+Existing browser `localStorage` is not cleared, overwritten, or automatically
+imported. Records still present in the browser will not appear in the database
+until you explicitly export and import them. The import is additive: duplicate
+PO numbers and previously imported record IDs are skipped, never used to
+overwrite database records. Invalid records or records whose buyer/unit/order
+cannot be resolved are skipped and listed in the import report. Review the
+report and resulting records before relying on imported data.
 
-## Role summary
+To export the old browser's records, open the app in the browser profile that
+contains them, open Developer Tools → Console, and run:
 
-| Role | API and UI access |
-|---|---|
-| ADMIN | View all demo orders and issues; manage users, roles, associations, and account status. Cannot review issue classifications or edit orders. |
-| MERCHANDISER | Manage existing internal order/TNA workflows; view issues and production data; confirm/reject issues through the role-guarded API. |
-| SUPERVISOR | View orders and issues for the assigned production unit; submit production updates and issue reports; cannot manage orders/users or review classifications. |
-| BUYER | Buyer portal only; backend returns only the account's own orders and confirmed, buyer-safe issue warnings. |
+```js
+const bundle = {
+  orders: JSON.parse(localStorage.getItem("stitchflow.production-orders.v1") || "null"),
+  productionUpdates: JSON.parse(localStorage.getItem("stitchflow.production-updates.v1") || "null"),
+  issues: JSON.parse(localStorage.getItem("stitchflow.production-issues.v1") || "null"),
+};
+const link = document.createElement("a");
+link.href = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
+link.download = "stitchflow-browser-export.json";
+link.click();
+URL.revokeObjectURL(link.href);
+```
 
-## API endpoints
+Protect the downloaded file as sensitive business data. Move it into
+`backend\` without committing it, then in a CMD terminal from the repository
+root run:
 
-Protected endpoints require `Authorization: Bearer <accessToken>`.
+```cmd
+npm run import:browser --prefix backend -- stitchflow-browser-export.json
+```
 
-- `POST /api/auth/login` — email/password login; returns a short-lived access
-  token and safe profile.
-- `GET /api/auth/me` — current active server-side profile.
-- `GET /api/users`, `POST /api/users`, `PATCH /api/users/:userId` — admin only.
-  The last active admin cannot be disabled or reassigned.
-- `GET /api/orders`, `GET /api/orders/:orderId` — server-scoped by buyer
-  organization or supervisor production unit. Buyer responses omit internal
-  notes and contain only confirmed warning details.
-- `GET /api/issues` — server-scoped; buyers receive only confirmed issues with
-  buyer-safe fields.
-- `POST /api/issues` — supervisor/merchandiser issue submission.
-- `POST /api/issues/classify` — supervisor/merchandiser classification. The
-  Phase 6 OpenAI integration remains server-side and returns a safe 503 when
-  credentials are not configured.
-- `PATCH /api/issues/:issueId/review` — merchandiser only; confirm/reject with
-  an audit event.
-- `GET /api/health` — local service health.
+The demo seed must already exist. Import maps the legacy `North Mill (Demo)`,
+`Riverside Works (Demo)`, and `East Works (Demo)` names to `Unit A`, `Unit B`,
+and `Unit C`, respectively. Missing buyer organizations (using the exported
+buyer name/country) and other missing production units are created additively
+to support imported orders; the demo seed itself still creates only its
+approved demo records. Legacy submissions are associated with the seeded demo
+supervisor/merchandiser. The importer preserves legacy order totals, stage
+baselines, TNA milestones, update quantities, and issue notes/classification
+history where the database schema accepts them. Browser attachment metadata is
+retained, but local attachment blobs are not uploaded or imported. Review every
+skipped record in the CLI output; fix or manually recreate records that cannot
+be mapped. Do not delete the browser's original storage or export until you've
+verified the database contents and made a backup.
 
-Buyer organization query parameters are ignored for authorization. Direct
-cross-organization order IDs return 404. No buyer notification is sent.
+## Tests and build
 
-## Demo data and persistence boundary
+Run from the repository root:
 
-The API's seeded users, organizations, production units, orders, and confirmed
-issues are separate temporary in-memory demo data. Admin-created users and
-API-submitted issues also disappear on API restart. Replace this repository
-with persistent storage in Phase 8.
+```cmd
+npm test
+npm test --prefix backend
+npm run test:db --prefix backend
+npm run build
+git diff --check
+```
 
-Existing internal order/TNA editing, production updates, and Phase 6 issue
-history remain localStorage-based browser workflows. They are not shared,
-encrypted, or a secure multi-user database. The buyer portal does not load or
-merge those localStorage records; it uses only the authenticated backend
-endpoints. Do not store confidential production or personal information in
-this demo.
+The database integration suite uses an isolated MongoDB replica set from
+`mongodb-memory-server` and may download a MongoDB binary on its first run. It
+does not contact your Atlas/local database. The regular backend test suite
+injects an in-memory repository. Neither test suite changes persistent data.
 
-Run all repository tests from the root with `npm test`, or backend tests alone
-with `npm test --prefix backend`. Tests mock classification and do not call
-OpenAI.
+## API, access, and operational notes
+
+- `POST /api/auth/login` and `GET /api/auth/me` — authentication and active
+  account profile.
+- `GET /api/orders`, `GET /api/orders/:orderId`, `POST /api/orders`, and
+  `PATCH /api/orders/:orderId` — role- and association-scoped order workflows.
+- `GET /api/order-options` — merchandiser-only buyer organizations and
+  production units available for order entry.
+- `GET /api/production-updates`, `POST /api/production-updates`, and
+  `PATCH`/`DELETE /api/production-updates/:updateId` — production update history
+  and stage-output maintenance.
+- `GET /api/issues`, `POST /api/issues`, `POST /api/issues/classify`, and
+  `PATCH /api/issues/:issueId/review` — persisted issue reporting,
+  classification, and merchandiser review.
+- `GET /api/users`, `POST /api/users`, and `PATCH /api/users/:userId` — admin
+  user management.
+- `GET /api/health` — service and database readiness.
+
+Buyer access is limited to the buyer organization on the authenticated account;
+supervisors are limited to their assigned production unit. Do not rely on
+client-supplied IDs or filters for authorization. Access tokens remain
+short-lived and in frontend memory. Passwords are stored as bcrypt hashes.
+Use TLS, restricted network access, private environment variables, least
+privilege database credentials, backups, and monitoring before any deployment
+outside local development. This phase does not implement server-side token
+revocation or refresh-token sessions.

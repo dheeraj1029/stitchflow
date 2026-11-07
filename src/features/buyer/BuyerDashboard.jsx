@@ -14,7 +14,7 @@ import BuyerIssueWarnings from "./BuyerIssueWarnings.jsx";
 const cards = [
   { key: "activeOrders", label: "Active orders", icon: ClipboardList, detail: "Orders not yet completed" },
   { key: "inProduction", label: "In production", icon: PackageOpen, detail: "Orders with a current production stage" },
-  { key: "shipped", label: "Shipped", icon: PackageCheck, detail: "No shipped records in this demo" },
+  { key: "shipped", label: "Shipped", icon: PackageCheck, detail: "Shipment tracking is not available in this phase" },
   { key: "attention", label: "Needs attention", icon: AlertTriangle, detail: "At-risk, delayed, or confirmed warning" },
 ];
 
@@ -63,7 +63,10 @@ export default function BuyerDashboard() {
                 key={order.id}
                 to={`/buyer/orders/${encodeURIComponent(order.id)}`}
               >
-                <span className="buyer-order-row__po">{order.poNumber}</span>
+                <span className="buyer-order-row__po">
+                  {order.poNumber}
+                  {order.isDemo && <small>Demo record</small>}
+                </span>
                 <span className="buyer-order-row__style">{order.style}<small>{order.colour}</small></span>
                 <span className="buyer-order-row__stage">{order.stage}<small>Current stage</small></span>
                 <span className="buyer-order-row__progress">
@@ -82,7 +85,7 @@ export default function BuyerDashboard() {
           <div className="buyer-empty-state">
             <ClipboardList aria-hidden="true" size={22} />
             <h3>No orders available</h3>
-            <p>There are no demo orders assigned to this buyer organization.</p>
+            <p>There are no production orders assigned to this buyer organization.</p>
           </div>
         )}
       </section>

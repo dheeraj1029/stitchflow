@@ -21,10 +21,11 @@ function OrderDetails({ order }) {
   return (
     <>
       <p className="modal-dialog__eyebrow">{order.poNumber}</p>
-      <p className="modal-dialog__note">
-        Demonstration order details. This sample data is not connected to a live
-        production system.
-      </p>
+      {order.isDemo && (
+        <p className="modal-dialog__note">
+          Seeded demonstration order. This record is not real company data.
+        </p>
+      )}
       <dl className="order-details">
         <div>
           <dt>Buyer</dt>
@@ -59,7 +60,7 @@ function OrderDetails({ order }) {
           <dd>{formatDate(order.exFactoryDate)}</dd>
         </div>
         <div>
-          <dt>Demonstration status</dt>
+          <dt>{order.isDemo ? "Demo status" : "Order status"}</dt>
           <dd>
             <StatusBadge status={order.status} />
           </dd>
@@ -68,7 +69,10 @@ function OrderDetails({ order }) {
       <div className="order-details__progress">
         <h3>Current stage progress</h3>
         <ProductionProgress order={order} />
-        <p>Progress compares current-stage output with the order quantity.</p>
+        <p>
+          Progress compares current-stage output with its stage target; it is
+          not overall finished-goods progress.
+        </p>
       </div>
     </>
   );
@@ -87,7 +91,7 @@ export default function ProductionOrdersTable({
       <div className="table-card__summary">
         <p aria-live="polite">
           Showing <strong>{resultCount}</strong> of{" "}
-          <strong>{totalCount}</strong> demo orders
+          <strong>{totalCount}</strong> orders
         </p>
         <p>Stage output only · not finished-goods progress</p>
       </div>
@@ -117,7 +121,12 @@ export default function ProductionOrdersTable({
             <tbody>
               {orders.map((order) => (
                 <tr key={order.poNumber}>
-                  <td className="orders-table__po">{order.poNumber}</td>
+                  <td className="orders-table__po">
+                    {order.poNumber}
+                    {order.isDemo && (
+                      <span className="orders-table__demo">Demo</span>
+                    )}
+                  </td>
                   <td>{order.buyer}</td>
                   <td>
                     <span className="orders-table__style">{order.style}</span>

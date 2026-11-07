@@ -74,6 +74,7 @@ export default function App() {
             <Route path="orders/:poNumber" element={<RolePage roles={["ADMIN", "MERCHANDISER", "SUPERVISOR"]}><OrderDetailsPage /></RolePage>} />
             <Route path="production-updates" element={<RolePage roles={["MERCHANDISER", "SUPERVISOR"]}><ProductionUpdatesPage /></RolePage>} />
             <Route path="production-updates/new" element={<RolePage roles={["SUPERVISOR"]}><ProductionUpdateForm /></RolePage>} />
+            <Route path="production-updates/:updateId/edit" element={<RolePage roles={["SUPERVISOR"]}><ProductionUpdateForm /></RolePage>} />
             <Route path="production-updates/:updateId" element={<RolePage roles={["MERCHANDISER", "SUPERVISOR"]}><ProductionUpdateDetailsPage /></RolePage>} />
             <Route path="issues" element={<IssuesPageRoute />} />
             <Route path="issues/new" element={<RolePage roles={["SUPERVISOR"]}><IssueReportPage /></RolePage>} />

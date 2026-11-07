@@ -83,8 +83,8 @@ export default function UserManagementPage() {
         </button>
       </header>
       <p className="issue-demo-notice">
-        These accounts are stored in the backend&apos;s temporary in-memory demo
-        repository and reset when it restarts. Password hashes are never shown.
+        Accounts and role assignments are stored in the StitchFlow database.
+        Password hashes are never shown.
       </p>
       {error && <p className="form-alert form-alert--error" role="alert">{error}</p>}
       {showForm && (

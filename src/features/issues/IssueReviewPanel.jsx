@@ -12,8 +12,6 @@ import {
 import { isBuyerWarningEligible } from "./issueModel.js";
 import {
   classifySavedIssue,
-  reviewSavedIssue,
-  saveIssueForReview,
 } from "./issueApi.js";
 import { useIssues } from "./IssuesContext.js";
 import { useAuth } from "../auth/AuthContext.js";
@@ -94,11 +92,10 @@ export default function IssueReviewPanel({ issue, onClose }) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
-      await saveIssueForReview(issue);
       const classification = await classifySavedIssue(issue, {
         signal: controller.signal,
       });
-      const result = applyClassification(issue.id, classification);
+      const result = await applyClassification(issue.id, classification);
       if (!result.ok) {
         throw new Error(result.error);
       }
@@ -108,7 +105,7 @@ export default function IssueReviewPanel({ issue, onClose }) {
         error instanceof Error
           ? error.message
           : "Classification failed. The original issue remains saved.";
-      markClassificationFailed(issue.id, message);
+      await markClassificationFailed(issue.id, message);
       setActionError(message);
     } finally {
       window.clearTimeout(timeout);
@@ -121,22 +118,7 @@ export default function IssueReviewPanel({ issue, onClose }) {
     setActionError("");
     setIsSavingReview(true);
     try {
-      await saveIssueForReview(issue);
-      await reviewSavedIssue(issue.id, {
-        decision: "CONFIRMED",
-        translation,
-        category,
-        severity,
-        reviewerNote,
-      });
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "The review could not be saved.",
-      );
-      setIsSavingReview(false);
-      return;
-    }
-    const result = confirmIssue(issue.id, {
+    const result = await confirmIssue(issue.id, {
       translation,
       category,
       severity,
@@ -147,6 +129,13 @@ export default function IssueReviewPanel({ issue, onClose }) {
       setIsSavingReview(false);
       return;
     }
+    } catch (error) {
+    setActionError(
+      error instanceof Error ? error.message : "The review could not be saved.",
+    );
+    setIsSavingReview(false);
+    return;
+    }
     setActionSuccess("Classification confirmed by merchandiser.");
     setIsSavingReview(false);
   }
@@ -155,21 +144,16 @@ export default function IssueReviewPanel({ issue, onClose }) {
     setActionError("");
     setIsSavingReview(true);
     try {
-      await saveIssueForReview(issue);
-      await reviewSavedIssue(issue.id, {
-        decision: "REJECTED",
-        reviewerNote,
-      });
+      const result = await rejectIssue(issue.id, reviewerNote);
+      if (!result.ok) {
+        setActionError(result.error);
+        setIsSavingReview(false);
+        return;
+      }
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "The review could not be saved.",
       );
-      setIsSavingReview(false);
-      return;
-    }
-    const result = rejectIssue(issue.id, reviewerNote);
-    if (!result.ok) {
-      setActionError(result.error);
       setIsSavingReview(false);
       return;
     }

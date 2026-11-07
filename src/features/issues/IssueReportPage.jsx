@@ -16,7 +16,7 @@ import {
   SEVERITY_LABELS,
 } from "./issueConstants.js";
 import { createIssueRecord } from "./issueModel.js";
-import { classifySavedIssue, saveIssueForReview } from "./issueApi.js";
+import { classifySavedIssue } from "./issueApi.js";
 
 const MAX_NOTE_LENGTH = 4000;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -113,11 +113,10 @@ export default function IssueReportPage() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
-      await saveIssueForReview(issue);
       const classification = await classifySavedIssue(issue, {
         signal: controller.signal,
       });
-      const result = applyClassification(issue.id, classification);
+      const result = await applyClassification(issue.id, classification);
       if (!result.ok) {
         throw new Error(result.error);
       }
@@ -126,11 +125,11 @@ export default function IssueReportPage() {
         requestError instanceof Error
           ? requestError.message
           : "Classification failed. The original issue is saved; retry.";
-      const saveResult = markClassificationFailed(issue.id, message);
+      const saveResult = await markClassificationFailed(issue.id, message);
       setError(
         saveResult.ok
           ? message
-          : `${message} The issue could not be updated in local storage; check browser storage.`,
+          : `${message} ${saveResult.error}`,
       );
     } finally {
       window.clearTimeout(timeout);
@@ -158,13 +157,14 @@ export default function IssueReportPage() {
       languageHint,
       attachment,
     });
-    const result = createIssue(issue);
+    const result = await createIssue(issue);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    setIssueId(issue.id);
-    await classify(issue);
+    const savedIssue = { ...issue, id: result.issue.id };
+    setIssueId(savedIssue.id);
+    await classify(savedIssue);
   }
 
   return (

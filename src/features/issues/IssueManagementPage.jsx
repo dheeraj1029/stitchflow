@@ -115,7 +115,7 @@ function IssueTable({ issues, onOpen }) {
 
 export default function IssueManagementPage() {
   const { orders } = useOrders();
-  const { issues, storageError } = useIssues();
+  const { issues, error: issuesError, loading: issuesLoading } = useIssues();
   const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState("");
@@ -176,12 +176,14 @@ export default function IssueManagementPage() {
         </Button>
       </header>
       <p className="issue-demo-notice">
-        Issue records are saved in this browser&apos;s localStorage for this
-        phase. This is demo persistence, not shared or production-grade storage.
-        No buyer warnings are sent.
+        Issue reports and review history are stored in the StitchFlow database.
+        Only confirmed issues are eligible for future buyer warnings; no buyer
+        notifications are sent.
       </p>
-      {storageError && <p className="storage-warning" role="alert">{storageError}</p>}
-      {issues.length === 0 ? (
+      {issuesError && <p className="storage-warning" role="alert">{issuesError}</p>}
+      {issuesLoading ? (
+        <p aria-live="polite" className="page-load-state">Loading production issues…</p>
+      ) : issues.length === 0 ? (
         <section className="issues-empty-state issues-empty-state--first">
           <SearchX aria-hidden="true" size={25} />
           <h2>No production issues yet</h2>

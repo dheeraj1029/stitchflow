@@ -80,6 +80,7 @@ export default function BuyerOrdersPage() {
                 <tr key={order.id}>
                   <td data-label="PO number">
                     <Link to={`/buyer/orders/${encodeURIComponent(order.id)}`}>{order.poNumber}</Link>
+                    {order.isDemo && <small>Demo record</small>}
                   </td>
                   <td data-label="Style / Colour">{order.style}<small>{order.colour}</small></td>
                   <td data-label="Quantity">{numberFormatter.format(order.quantity)} pcs</td>
@@ -104,7 +105,7 @@ export default function BuyerOrdersPage() {
         <div className="buyer-empty-state">
           <SearchX aria-hidden="true" size={22} />
           <h2>{orders.length ? "No orders match your filters" : "No orders available"}</h2>
-          <p>{orders.length ? "Try a different search or clear the selected status." : "No demo orders are assigned to your organization."}</p>
+          <p>{orders.length ? "Try a different search or clear the selected status." : "No production orders are assigned to your organization."}</p>
           {orders.length > 0 && (search || status) && (
             <button className="buyer-clear-button" onClick={() => { setSearch(""); setStatus(""); }} type="button">
               Clear filters

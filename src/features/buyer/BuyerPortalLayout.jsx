@@ -85,8 +85,8 @@ export default function BuyerPortalLayout() {
         )}
       </main>
       <footer className="buyer-footer">
-        Buyer access is restricted to your organization. Demo data is held in
-        the backend&apos;s temporary in-memory repository and resets on restart.
+        Buyer access is restricted to your organization. Order and confirmed
+        issue data is loaded from the persistent StitchFlow database.
       </footer>
     </div>
   );

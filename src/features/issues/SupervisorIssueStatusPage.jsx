@@ -27,8 +27,8 @@ export default function SupervisorIssueStatusPage() {
         </Button>
       </header>
       <p className="issue-demo-notice">
-        These browser-saved reports are local demo data. Only issue status and
-        the submitted note are shown in this workspace.
+        Reports are saved in StitchFlow. Only issue status and the submitted
+        note are shown in this workspace.
       </p>
       {visibleIssues.length ? (
         <section aria-label="Issue report status" className="supervisor-issues-list">

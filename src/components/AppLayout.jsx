@@ -4,6 +4,8 @@ import Sidebar from "./Sidebar.jsx";
 import Topbar from "./Topbar.jsx";
 import { useOrders } from "../state/OrdersContext.js";
 import { useAuth } from "../features/auth/AuthContext.js";
+import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
+import { useIssues } from "../features/issues/IssuesContext.js";
 
 const pageTitles = {
   "/overview": "Overview",
@@ -25,7 +27,23 @@ export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { storageError } = useOrders();
+  const { error: ordersError, loading: ordersLoading, reload } = useOrders();
+  const {
+    error: updatesError,
+    loading: updatesLoading,
+    reload: reloadUpdates,
+  } = useProductionUpdates();
+  const {
+    error: issuesError,
+    loading: issuesLoading,
+    reload: reloadIssues,
+  } = useIssues();
+  const loading = ordersLoading || updatesLoading || issuesLoading;
+  const dataErrors = [
+    ordersError && { name: "production orders", message: ordersError, retry: reload },
+    updatesError && { name: "production updates", message: updatesError, retry: reloadUpdates },
+    issuesError && { name: "production issues", message: issuesError, retry: reloadIssues },
+  ].filter(Boolean);
   const closeMobileMenu = useCallback(() => {
     setIsMobileOpen(false);
     if (window.matchMedia("(max-width: 767px)").matches) {
@@ -90,12 +108,23 @@ export default function AppLayout() {
           user={user}
         />
         <main className="main-content" id="main-content">
-          {storageError && (
-            <p className="storage-warning" role="alert">
-              {storageError}
-            </p>
+          {loading ? (
+            <p aria-live="polite" className="page-load-state">Loading production workspace…</p>
+          ) : dataErrors.length ? (
+            <section className="buyer-error-state" role="alert">
+              <h1>Production data unavailable</h1>
+              {dataErrors.map(({ name, message, retry }) => (
+                <div key={name}>
+                  <p>{name}: {message}</p>
+                  <button onClick={() => retry().catch(() => {})} type="button">
+                    Retry {name}
+                  </button>
+                </div>
+              ))}
+            </section>
+          ) : (
+            <Outlet />
           )}
-          <Outlet />
         </main>
       </div>
     </div>

@@ -1,10 +1,12 @@
+import { useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Image } from "lucide-react";
+import { ArrowLeft, Image, Pencil, Trash2 } from "lucide-react";
 import Button from "../components/Button.jsx";
 import Card from "../components/Card.jsx";
 import PageHeader from "../components/PageHeader.jsx";
 import { useOrders } from "../state/OrdersContext.js";
 import { useProductionUpdates } from "../state/ProductionUpdatesContext.js";
+import { useAuth } from "../features/auth/AuthContext.js";
 
 const numberFormatter = new Intl.NumberFormat("en");
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -20,20 +22,38 @@ export default function ProductionUpdateDetailsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { orders } = useOrders();
-  const { updates } = useProductionUpdates();
+  const { updates, deleteProductionUpdate } = useProductionUpdates();
+  const { user } = useAuth();
+  const [actionError, setActionError] = useState("");
   const orderById = new Map(orders.map((item) => [item.id, item]));
   const update = updates.find(
     (item) => item.id === updateId && orderById.has(item.orderId),
   );
   const order = update && orderById.get(update.orderId);
+  const canManage = user?.role === "SUPERVISOR" &&
+    update?.submittedById === user.id;
+
+  async function removeUpdate() {
+    if (!window.confirm("Remove this production update? Its stage total will be recalculated.")) {
+      return;
+    }
+    setActionError("");
+    const result = await deleteProductionUpdate(update.id);
+    if (!result.ok) {
+      setActionError(result.error);
+      return;
+    }
+    navigate("/production-updates", {
+      state: { message: "Production update removed." },
+    });
+  }
 
   if (!update) {
     return (
       <div className="order-not-found">
         <PageHeader title="Production update not found" />
         <p>
-          This record may be unavailable in the current browser&apos;s saved
-          production history.
+          This record may no longer be available or you may not have access.
         </p>
         <Button
           onClick={() => navigate("/production-updates")}
@@ -58,14 +78,30 @@ export default function ProductionUpdateDetailsPage() {
           description={`${order?.buyer || "Order"} · ${order?.style || update.poNumber}`}
           title={update.poNumber}
         />
-        <Button
-          onClick={() => navigate("/production-updates")}
-          variant="secondary"
-        >
-          <ArrowLeft aria-hidden="true" size={16} />
-          Production Updates
-        </Button>
+        <div className="production-update-details__actions">
+          {canManage && (
+            <>
+              <Button
+                onClick={() => navigate(`/production-updates/${encodeURIComponent(update.id)}/edit`)}
+                variant="secondary"
+              >
+                <Pencil aria-hidden="true" size={16} /> Edit
+              </Button>
+              <Button onClick={removeUpdate} variant="secondary">
+                <Trash2 aria-hidden="true" size={16} /> Remove
+              </Button>
+            </>
+          )}
+          <Button
+            onClick={() => navigate("/production-updates")}
+            variant="secondary"
+          >
+            <ArrowLeft aria-hidden="true" size={16} />
+            Production Updates
+          </Button>
+        </div>
       </div>
+      {actionError && <p className="form-alert form-alert--error" role="alert">{actionError}</p>}
       <Card className="details-card" title="Production update">
         <dl className="order-summary order-summary--update">
           <div className="order-summary__item">
@@ -121,7 +157,7 @@ export default function ProductionUpdateDetailsPage() {
                 {(update.attachment.size / (1024 * 1024)).toFixed(2)} MB
               </span>
             </div>
-            <p>Photo preview is temporary and is not stored in this browser.</p>
+            <p>Attachment metadata is stored. Image bytes are not uploaded in this phase.</p>
           </div>
         ) : (
           <p className="details-empty">No production photo was attached.</p>

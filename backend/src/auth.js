@@ -1,10 +1,10 @@
 import jwt from "jsonwebtoken";
 
 export function toSafeUser(user, repository) {
-  const organization = repository.organizations.find(
+  const organization = (repository.organizations || []).find(
     (item) => item.id === user.buyerOrganizationId,
   );
-  const unit = repository.productionUnits.find(
+  const unit = (repository.productionUnits || []).find(
     (item) => item.id === user.productionUnitId,
   );
   return {
@@ -14,9 +14,9 @@ export function toSafeUser(user, repository) {
     role: user.role,
     isActive: user.isActive,
     buyerOrganizationId: user.buyerOrganizationId,
-    buyerOrganizationName: organization?.name || null,
+    buyerOrganizationName: user.buyerOrganizationName || organization?.name || null,
     productionUnitId: user.productionUnitId,
-    productionUnitName: unit?.name || null,
+    productionUnitName: user.productionUnitName || unit?.name || null,
   };
 }
 
@@ -35,22 +35,24 @@ export function createAuthenticationMiddleware(repository, secret) {
       return response.status(401).json({ error: "Authentication is required." });
     }
 
+    let payload;
     try {
-      const payload = jwt.verify(match[1], secret, {
+      payload = jwt.verify(match[1], secret, {
         algorithms: ["HS256"],
       });
-      if (!payload || typeof payload.sub !== "string") {
-        return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
-      }
-      const user = repository.findUserById(payload.sub);
+    } catch {
+      return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
+    }
+    if (!payload || typeof payload.sub !== "string") {
+      return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
+    }
+    return Promise.resolve(repository.findUserById(payload.sub)).then((user) => {
       if (!user || !user.isActive) {
         return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
       }
       request.authUser = user;
       return next();
-    } catch {
-      return response.status(401).json({ error: "Your session is invalid or expired. Please sign in again." });
-    }
+    }).catch(next);
   };
 }
 

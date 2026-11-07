@@ -4,8 +4,16 @@ import {
 } from "./issueConstants.js";
 import { apiRequest } from "../auth/authApi.js";
 
+export async function listIssues() {
+  const result = await apiRequest("/api/issues");
+  if (!Array.isArray(result.issues)) {
+    throw new Error("The issue service returned invalid data.");
+  }
+  return result.issues;
+}
+
 export async function saveIssueForReview(issue) {
-  return apiRequest("/api/issues", {
+  const result = await apiRequest("/api/issues", {
     method: "POST",
     body: JSON.stringify({
       id: issue.id,
@@ -15,6 +23,10 @@ export async function saveIssueForReview(issue) {
       languageHint: issue.languageHint || "auto",
     }),
   });
+  if (!result.issue || typeof result.issue.id !== "string") {
+    throw new Error("The issue service returned an invalid record.");
+  }
+  return result.issue;
 }
 
 export async function classifySavedIssue(issue, { signal } = {}) {

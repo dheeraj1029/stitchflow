@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useOrders } from "../state/OrdersContext.js";
 import Button from "./Button.jsx";
@@ -12,17 +12,8 @@ import {
   requiredMilestones,
 } from "../data/productionOrders.js";
 import { validateOrder } from "../data/orderValidation.js";
+import { getOrderOptions } from "../features/orders/ordersApi.js";
 
-const buyers = [
-  { name: "Company A (US)", country: "United States" },
-  { name: "Company B (UK)", country: "United Kingdom" },
-  { name: "Company C (Germany)", country: "Germany" },
-];
-const productionUnits = [
-  "North Mill (Demo)",
-  "Riverside Works (Demo)",
-  "East Works (Demo)",
-];
 const categories = ["T-shirt", "Polo", "Sweatshirt", "Knitwear", "Other"];
 
 function localDate(date = new Date()) {
@@ -105,7 +96,7 @@ function createFormOrder(order) {
 export default function OrderForm() {
   const { poNumber: routePo } = useParams();
   const navigate = useNavigate();
-  const { orders, saveOrder } = useOrders();
+  const { orders, saveOrder, loading: ordersLoading } = useOrders();
   const existingOrder = routePo
     ? orders.find((order) => order.poNumber === routePo)
     : null;
@@ -115,12 +106,39 @@ export default function OrderForm() {
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orderOptions, setOrderOptions] = useState({
+    buyers: [],
+    productionUnits: [],
+  });
+  const [optionsLoading, setOptionsLoading] = useState(true);
+  const [optionsError, setOptionsError] = useState("");
+
+  const reloadOrderOptions = useCallback(async () => {
+    setOptionsLoading(true);
+    setOptionsError("");
+    try {
+      setOrderOptions(await getOrderOptions());
+    } catch (loadError) {
+      setOptionsError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Order options could not be loaded.",
+      );
+    } finally {
+      setOptionsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const nextForm = createFormOrder(existingOrder);
     baselineRef.current = JSON.stringify(nextForm);
     setForm(nextForm);
   }, [existingOrder]);
+
+  useEffect(() => {
+    reloadOrderOptions();
+  }, [reloadOrderOptions]);
 
   const isEditing = Boolean(routePo);
   const sizeBreakdownChanged =
@@ -244,7 +262,7 @@ export default function OrderForm() {
     setErrors((current) => ({ ...current, exFactoryDate: "" }));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setSubmitError("");
     const normalized = {
@@ -288,10 +306,12 @@ export default function OrderForm() {
       return;
     }
 
-    const result = saveOrder(normalized, existingOrder?.id);
+    setIsSubmitting(true);
+    const result = await saveOrder(normalized, existingOrder?.id);
     if (!result.ok) {
       setSubmitError(result.error);
       setErrors((current) => ({ ...current, poNumber: result.error }));
+      setIsSubmitting(false);
       return;
     }
     baselineRef.current = JSON.stringify(createFormOrder(normalized));
@@ -300,6 +320,11 @@ export default function OrderForm() {
         message: isEditing ? "Order changes saved." : "Order created.",
       },
     });
+    setIsSubmitting(false);
+  }
+
+  if (ordersLoading || optionsLoading) {
+    return <p aria-live="polite" className="page-load-state">Loading order data…</p>;
   }
 
   return (
@@ -316,6 +341,18 @@ export default function OrderForm() {
         <p className="form-alert form-alert--error" role="alert">
           {submitError}
         </p>
+      )}
+      {optionsError && (
+        <div className="form-alert form-alert--error" role="alert">
+          <p>{optionsError}</p>
+          <Button
+            onClick={reloadOrderOptions}
+            type="button"
+            variant="secondary"
+          >
+            Retry loading order options
+          </Button>
+        </div>
       )}
       <form className="order-form" noValidate onSubmit={handleSubmit}>
         <Card className="form-section" title="Order information">
@@ -348,21 +385,21 @@ export default function OrderForm() {
                   id="buyer"
                   list="buyer-options"
                   onChange={(event) => {
-                    const selected = buyers.find(
+                    const selected = orderOptions.buyers.find(
                       (buyer) => buyer.name === event.target.value,
                     );
                     setForm((current) => ({
                       ...current,
                       buyer: event.target.value,
-                      buyerCountry: selected?.country || current.buyerCountry,
+                      buyerCountry: selected?.country || "",
                     }));
                     setErrors((current) => ({ ...current, buyer: "" }));
                   }}
-                  placeholder="Select or enter a buyer"
+                  placeholder="Select a registered buyer"
                   value={form.buyer}
                 />
                 <datalist id="buyer-options">
-                  {buyers.map((buyer) => (
+                  {orderOptions.buyers.map((buyer) => (
                     <option key={buyer.name} value={buyer.name} />
                   ))}
                 </datalist>
@@ -371,9 +408,7 @@ export default function OrderForm() {
             <FormField id="buyer-country" label="Buyer country">
               <input
                 id="buyer-country"
-                onChange={(event) =>
-                  updateField("buyerCountry", event.target.value)
-                }
+                readOnly
                 placeholder="e.g. United Kingdom"
                 value={form.buyerCountry}
               />
@@ -431,9 +466,9 @@ export default function OrderForm() {
                 value={form.productionUnit}
               >
                 <option value="">Select a unit</option>
-                {productionUnits.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
+                {orderOptions.productionUnits.map((unit) => (
+                  <option key={unit.id} value={unit.name}>
+                    {unit.name}
                   </option>
                 ))}
               </select>
@@ -645,8 +680,12 @@ export default function OrderForm() {
           >
             Cancel
           </Button>
-          <Button type="submit" variant="primary">
-            {isEditing ? "Save changes" : "Create order"}
+          <Button
+            disabled={isSubmitting || optionsLoading || Boolean(optionsError)}
+            type="submit"
+            variant="primary"
+          >
+            {isSubmitting ? "Saving…" : isEditing ? "Save changes" : "Create order"}
           </Button>
         </div>
       </form>

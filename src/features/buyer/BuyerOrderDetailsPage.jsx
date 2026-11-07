@@ -64,7 +64,10 @@ export default function BuyerOrderDetailsPage() {
       </Link>
       <header className="buyer-page-heading buyer-order-details__heading">
         <div>
-          <p className="buyer-eyebrow">{order.poNumber}</p>
+          <p className="buyer-eyebrow">
+            {order.poNumber}
+            {order.isDemo && <small className="buyer-demo-label">Seeded demo record</small>}
+          </p>
           <h1>{order.style}</h1>
           <p>{order.colour} · {numberFormatter.format(order.quantity)} pcs</p>
         </div>
